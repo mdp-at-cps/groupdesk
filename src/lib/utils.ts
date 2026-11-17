@@ -21,7 +21,7 @@ export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || "Tickets";
 export const TEAM_NAME = process.env.NEXT_PUBLIC_TEAM_NAME || "Support Team";
 
 /**
- * Dates render the same on the server (UTC on Vercel) and in the browser, in
+ * Dates render the same on the server (UTC on Cloudflare) and in the browser, in
  * the school's time zone, so a late-evening email never shows as the next day.
  */
 export const TIME_ZONE = process.env.NEXT_PUBLIC_TIME_ZONE || "America/Los_Angeles";

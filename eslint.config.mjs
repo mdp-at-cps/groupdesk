@@ -14,5 +14,5 @@ export default defineConfig([
       ],
     },
   },
-  globalIgnores([".next/**", "out/**", "build/**", "drizzle/**", "next-env.d.ts"]),
+  globalIgnores([".next/**", "out/**", "build/**", "drizzle/**", "next-env.d.ts", ".open-next/**", ".wrangler/**", "cloudflare-env.d.ts"]),
 ]);

@@ -335,7 +335,7 @@ function MessageCard({
             <div className="flex items-baseline gap-2">{nameRow}</div>
             <p className="mt-0.5 truncate text-sm text-[var(--muted-foreground)]">
               {m.attachments.length > 0 && <Paperclip className="mr-1 inline size-3" />}
-              {snippet(m) || "(empty message)"}
+              {snippet(m) || (/<img\b/i.test(m.bodyHtml ?? "") ? "Image" : "(empty message)")}
             </p>
           </div>
         </button>

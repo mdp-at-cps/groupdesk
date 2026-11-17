@@ -6,6 +6,7 @@ import { db } from "@/db";
 import { agents, savedViews } from "@/db/schema";
 import { requireAgent } from "@/lib/auth";
 import type { ActionState } from "./tickets";
+import { isTheme } from "@/lib/themes";
 
 /** Save the current list filters (a /tickets query string) under a name. */
 export async function saveView(name: string, query: string): Promise<ActionState> {
@@ -35,4 +36,13 @@ export async function setNotifyEmail(on: boolean): Promise<ActionState> {
   await db.update(agents).set({ notifyEmail: on }).where(eq(agents.id, agent.id));
   revalidatePath("/", "layout");
   return { ok: on ? "Notifications on" : "Notifications off" };
+}
+
+/** My colour theme in the portal. */
+export async function setTheme(theme: string): Promise<ActionState> {
+  const { agent } = await requireAgent();
+  if (!isTheme(theme)) return { error: "Unknown theme" };
+  await db.update(agents).set({ theme }).where(eq(agents.id, agent.id));
+  revalidatePath("/", "layout");
+  return { ok: "Theme saved" };
 }

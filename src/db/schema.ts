@@ -44,6 +44,8 @@ export const agents = pgTable(
     lastDigestAt: timestamp("last_digest_at", { withTimezone: true }),
     /** Email me when I'm assigned, a requester replies on my ticket, or I'm @mentioned. */
     notifyEmail: boolean("notify_email").notNull().default(true),
+    /** Their colour theme in the portal; one of THEMES in src/lib/themes.ts. */
+    theme: text("theme").notNull().default("simple"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

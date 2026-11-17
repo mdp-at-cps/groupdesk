@@ -1,5 +1,5 @@
 /**
- * Read a variable, forgiving the usual paste mistakes in the Vercel UI: the
+ * Read a variable, forgiving the usual paste mistakes in a dashboard UI: the
  * whole `NAME=value` line pasted as the value, surrounding quotes, or stray
  * whitespace. (APP_URL once arrived as "APP_URL=https://…" and broke links.)
  */
@@ -35,14 +35,9 @@ function origin(value: string | undefined): string | null {
 
 export const env = {
   get appUrl() {
-    // Vercel sets VERCEL_PROJECT_PRODUCTION_URL (host only) on every deploy, so
-    // a missing APP_URL no longer sends OAuth back to localhost in production.
+    // Set APP_URL in wrangler (vars or secret) to the Worker's public URL.
     // A malformed APP_URL falls back rather than producing broken links.
-    return (
-      origin(read("APP_URL")) ??
-      origin(process.env.VERCEL_PROJECT_PRODUCTION_URL) ??
-      "http://localhost:3000"
-    );
+    return origin(read("APP_URL")) ?? "http://localhost:3000";
   },
 
   // Google OAuth

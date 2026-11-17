@@ -5,6 +5,7 @@ import { drizzle } from "drizzle-orm/neon-serverless";
 import ws from "ws";
 import { agents, tags, teams } from "../src/db/schema";
 import { slugify } from "../src/lib/utils";
+import "../src/db/local-proxy";
 
 if (typeof WebSocket === "undefined") neonConfig.webSocketConstructor = ws;
 

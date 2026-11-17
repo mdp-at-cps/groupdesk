@@ -1,12 +1,13 @@
 import { OAuth2Client } from "google-auth-library";
 import { env } from "@/lib/env";
 import { syncFromHistory } from "@/lib/gmail/sync";
+import { googleTransport } from "@/lib/gmail/endpoints";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const verifier = new OAuth2Client();
+const verifier = new OAuth2Client({ transporterOptions: googleTransport });
 
 type PushEnvelope = {
   message?: { data?: string; messageId?: string; publishTime?: string };

@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { people } from "@/db/schema";
 import { env } from "@/lib/env";
 import { googleAuthFor } from "@/lib/gmail/client";
+import { peopleApiBase } from "@/lib/gmail/endpoints";
 
 /** How long a looked-up photo (or "no photo") is trusted before asking again. */
 const STALE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -165,7 +166,7 @@ async function googlePhoto(
   const { auth } = await googleAuthFor();
   try {
     const { data } = await auth.request<{ people?: DirectoryPerson[] }>({
-      url: "https://people.googleapis.com/v1/people:searchDirectoryPeople",
+      url: `${peopleApiBase}/v1/people:searchDirectoryPeople`,
       params: {
         query: email,
         readMask: "names,photos",

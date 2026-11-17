@@ -1,5 +1,7 @@
 allowBuilds:
   esbuild: true
+  workerd: true
+  "@embedded-postgres/darwin-arm64": true
   core-js-pure: false
   sharp: false
   unrs-resolver: false

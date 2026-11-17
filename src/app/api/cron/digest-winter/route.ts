@@ -1,6 +1,6 @@
 // Same handler as /api/cron/digest, on the 00:00 Saturday UTC schedule that
 // matches 4pm Friday in Pacific Standard Time (the other slot covers PDT).
-// A separate path keeps vercel.json free of duplicate cron paths.
+// A separate path gives each Cron Trigger its own route (see worker.ts).
 export { GET, POST } from "../digest/route";
 
 export const runtime = "nodejs";

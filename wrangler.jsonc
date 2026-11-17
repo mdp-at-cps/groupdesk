@@ -1,0 +1,35 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "groupdesk",
+  // worker.ts wraps the OpenNext build output and adds the cron handler.
+  "main": "worker.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "services": [
+    // Self-reference used by OpenNext; must match "name" above.
+    { "binding": "WORKER_SELF_REFERENCE", "service": "groupdesk" }
+  ],
+  "r2_buckets": [
+    // Email attachments. Create once: pnpm wrangler r2 bucket create groupdesk-attachments
+    { "binding": "ATTACHMENTS", "bucket_name": "groupdesk-attachments" }
+  ],
+  "triggers": {
+    // UTC. Each schedule is mapped to its /api/cron/* route in worker.ts;
+    // keep the two lists in sync.
+    "crons": [
+      "17 9 * * *",   // gmail-watch: renew the Gmail push watch
+      "*/10 * * * *", // gmail-reconcile: catch up on any dropped Pub/Sub pushes
+      "7 14 * * *",   // daily: auto-solve pending tickets, etc.
+      "0 23 * * FRI", // digest: 4pm Friday Pacific during daylight time
+      "0 0 * * SAT"   // digest-winter: 4pm Friday Pacific during standard time
+    ]
+  },
+  "observability": { "enabled": true }
+  // On the Workers Paid plan, raise the CPU limit for the long admin jobs
+  // (bulk Gmail backfill, people sync), which Vercel ran with maxDuration = 300:
+  // "limits": { "cpu_ms": 300000 }
+}

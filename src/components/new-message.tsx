@@ -104,6 +104,7 @@ export function NewMessageForm({
         <RichEditor
           placeholder="Write your message… (type / for templates)"
           templates={templates}
+          images
           variables={() => {
             const email = to[0] ?? "";
             return recipientVars(

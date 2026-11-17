@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 /**
- * Weekly digest. Vercel cron runs in UTC with no DST, so vercel.json fires
+ * Weekly digest. Cron Triggers run in UTC with no DST, so wrangler.jsonc fires
  * this at both 23:00 Fri and 00:00 Sat UTC; only the one that lands in 4pm
  * Friday Pacific sends. `?force=1` skips the clock check (still once per agent
  * per 3 days).

@@ -4,6 +4,7 @@ import { setAgentActive, setAgentTeam, upsertAgent } from "@/lib/actions/admin";
 import {
   AddAgentForm,
   AgentTeamToggles,
+  EditAgentButton,
   ToggleAgentForm,
 } from "@/components/admin/forms";
 import { photosFor } from "@/lib/people";
@@ -13,7 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 export const dynamic = "force-dynamic";
 
 export default async function AgentsPage() {
-  await requireAdmin();
+  const { agent: me } = await requireAdmin();
   const [agents, teams, memberships] = await Promise.all([
     listAgents(),
     listTeams(),
@@ -66,6 +67,7 @@ export default async function AgentsPage() {
                 <span className="flex items-center gap-2">
                   <Avatar name={a.name} email={a.email} photo={photos[a.email.toLowerCase()]} size="sm" />
                   {a.name}
+                  {a.id === me.id && <span className="text-xs text-[var(--muted-foreground)]">(you)</span>}
                 </span>
               </td>
               <td className="py-2 pr-3 text-[var(--muted-foreground)]">{a.email}</td>
@@ -79,7 +81,14 @@ export default async function AgentsPage() {
                 />
               </td>
               <td className="py-2 text-right">
-                <ToggleAgentForm action={setAgentActive} id={a.id} active={a.active} />
+                <span className="flex justify-end gap-2">
+                  <EditAgentButton
+                    action={upsertAgent}
+                    agent={{ id: a.id, name: a.name, email: a.email, role: a.role }}
+                    isSelf={a.id === me.id}
+                  />
+                  <ToggleAgentForm action={setAgentActive} id={a.id} active={a.active} />
+                </span>
               </td>
             </tr>
           ))}

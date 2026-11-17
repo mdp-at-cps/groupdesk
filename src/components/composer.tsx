@@ -120,7 +120,7 @@ export function Composer({
             >
               <Reply className="size-4 shrink-0" />
               <span className="truncate">
-                {body.empty ? `Reply to ${requesterName}…` : `Draft: ${body.text.slice(0, 90)}`}
+                {body.empty ? `Reply to ${requesterName}…` : `Draft: ${body.text.trim().slice(0, 90) || "image"}`}
               </span>
               <span className="ml-auto">
                 <Kbd>r</Kbd>
@@ -235,6 +235,7 @@ export function Composer({
                 : "Note for the team — type @ to mention someone"
             }
             templates={templates}
+            images
             // "@" suggests teammates in internal notes (they get an email).
             mentions={mode === "note" ? agents : undefined}
             variables={() => {

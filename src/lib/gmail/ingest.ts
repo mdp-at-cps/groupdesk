@@ -1,7 +1,7 @@
 import "server-only";
 import PostalMime, { type Email, type Address } from "postal-mime";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { put } from "@vercel/blob";
+import { putFile, storageConfigured } from "@/lib/storage";
 import { db, type Tx } from "@/db";
 import {
   agents,
@@ -491,32 +491,10 @@ async function findOrCreateTicketRaw(
 
 /* ----------------------------------------------------------- attachments */
 
-/**
- * Vercel Blob stores are either private or public, and each only accepts its
- * own kind of upload. Try private first (attachments can be sensitive), fall
- * back to public, and remember which one worked.
- */
-let blobAccess: "private" | "public" | null = null;
-
-async function putAttachment(path: string, body: Buffer, contentType: string) {
-  const order: ("private" | "public")[] = blobAccess ? [blobAccess] : ["private", "public"];
-  let lastError: unknown;
-  for (const access of order) {
-    try {
-      const blob = await put(path, body, { access, addRandomSuffix: true, contentType });
-      blobAccess = access;
-      return blob;
-    } catch (err) {
-      lastError = err;
-    }
-  }
-  throw lastError;
-}
-
 async function storeAttachments(messageId: string, parsed: Email) {
   const list = parsed.attachments ?? [];
   if (!list.length) return;
-  if (!process.env.BLOB_READ_WRITE_TOKEN) return;
+  if (!storageConfigured()) return;
 
   for (const att of list) {
     try {
@@ -526,8 +504,9 @@ async function storeAttachments(messageId: string, parsed: Email) {
           ? Buffer.from(att.content)
           : Buffer.from(att.content as unknown as string, "utf8");
 
-      const blob = await putAttachment(
-        `messages/${messageId}/${filename}`,
+      const key = await putFile(
+        `messages/${messageId}`,
+        filename,
         body,
         att.mimeType || "application/octet-stream",
       );
@@ -537,7 +516,7 @@ async function storeAttachments(messageId: string, parsed: Email) {
         filename,
         contentType: att.mimeType ?? null,
         size: body.byteLength,
-        blobUrl: blob.url,
+        blobUrl: key,
         contentId: att.contentId?.replace(/^<|>$/g, "").trim() || null,
       });
     } catch (err) {

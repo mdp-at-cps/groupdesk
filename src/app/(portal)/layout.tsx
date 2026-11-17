@@ -54,6 +54,7 @@ export default async function PortalLayout({
             photo={photos[agent.email.toLowerCase()] ?? null}
             logoutUrl={signInConfigured() ? "/api/auth/logout" : null}
             notifyEmail={agent.notifyEmail}
+            theme={agent.theme}
           />
         </div>
       </header>

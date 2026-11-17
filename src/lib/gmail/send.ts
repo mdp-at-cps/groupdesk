@@ -6,6 +6,7 @@ import { messages, tickets, type Agent } from "@/db/schema";
 import { env } from "@/lib/env";
 import { taggedSubject } from "@/lib/ticket-subject";
 import { APP_NAME, TEAM_NAME, TIME_ZONE } from "@/lib/utils";
+import { extractInlineImages, storeInlineImages } from "@/lib/inline-images";
 import { gmailFor } from "./client";
 
 export type SentReply = {
@@ -38,6 +39,9 @@ export async function sendReply(args: {
     .where(eq(tickets.id, args.ticketId))
     .limit(1);
   if (!ticket) throw new Error("Ticket not found");
+
+  // Pasted/dropped images become inline cid: attachments (throws if too big).
+  const { html: bodyHtml, images } = extractInlineImages(args.bodyHtml);
 
   const { client } = await gmailFor();
   const { last, threadId, references } = await threadingFor(client, ticket);
@@ -73,14 +77,23 @@ export async function sendReply(args: {
 
   // Always send HTML so the quoted history renders (and collapses) like a
   // normal Gmail reply. The portal hides .gmail_quote the same way.
-  const content = args.bodyHtml
-    ? emailHtml(args.bodyHtml)
+  const content = bodyHtml
+    ? emailHtml(bodyHtml)
     : escapeHtml(args.bodyText.trim()).replace(/\n/g, "<br>");
   const html =
     `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.4;color:#1f2328">${content}` +
     `<p style="margin-top:16px;color:#6b7280">--<br>${escapeHtml(args.agent.name)}<br>${TEAM_NAME}<br>Ticket #${ticket.number}</p></div>` +
     (quote?.html ?? "");
   msg.addMessage({ contentType: "text/html", encoding: "base64", data: base64Lines(html) });
+  for (const img of images) {
+    msg.addAttachment({
+      inline: true,
+      filename: img.filename,
+      contentType: img.contentType,
+      data: img.data.toString("base64"),
+      headers: { "Content-ID": `<${img.contentId}>` },
+    });
+  }
 
   const raw = Buffer.from(msg.asRaw()).toString("base64url");
 
@@ -130,6 +143,8 @@ export async function sendReply(args: {
     })
     .returning({ id: messages.id });
 
+  await storeInlineImages(row.id, images);
+
   await db
     .update(tickets)
     .set({
@@ -167,8 +182,12 @@ function quoteOf(m: QuotedMessage) {
     .split(/\r?\n/)
     .map((l) => `> ${l}`)
     .join("\n")}\n`;
+  // Earlier inline images aren't re-attached, so drop them from the quote
+  // rather than send broken-image boxes.
   const inner = m.bodyHtml
-    ? cleanHtml(m.bodyHtml).replace(/<!doctype[^>]*>|<\/?(html|head|body)[^>]*>|<title>[\s\S]*?<\/title>/gi, "")
+    ? cleanHtml(m.bodyHtml)
+        .replace(/<!doctype[^>]*>|<\/?(html|head|body)[^>]*>|<title>[\s\S]*?<\/title>/gi, "")
+        .replace(/<img\b[^>]*\bsrc=["']?cid:[^>]*>/gi, "")
     : escapeHtml(m.bodyText ?? "").replace(/\n/g, "<br>");
   const html =
     `<br><div class="gmail_quote"><div dir="ltr" class="gmail_attr">${escapeHtml(attribution)}<br></div>` +
