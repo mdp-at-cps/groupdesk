@@ -73,7 +73,11 @@ export default async function PortalLayout({
             <Sidebar {...sidebar} className="h-full w-full overflow-y-auto" />
           </Suspense>
         </ResizablePanel>
-        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto">{children}</main>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <main className="min-h-0 min-w-0 flex-1 overflow-y-auto">{children}</main>
+          {/* Artwork for themes that have it (globals.css); hidden otherwise. */}
+          <div className="theme-footer" aria-hidden />
+        </div>
       </div>
     </div>
   );

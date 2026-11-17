@@ -8,6 +8,7 @@
 export const THEMES = [
   { id: "simple", label: "Simple", dark: false, swatch: ["#ffffff", "#2b4f8a"] },
   { id: "simple-dark", label: "Simple Dark", dark: true, swatch: ["#1b1d24", "#86a8e6"] },
+  { id: "campfire", label: "Campfire", dark: true, swatch: ["#0c2340", "#f5a623"] },
 ] as const;
 
 export type ThemeId = (typeof THEMES)[number]["id"];

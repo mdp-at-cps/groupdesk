@@ -308,10 +308,12 @@ and may cut those jobs short.
   pick the ticket to keep. **Mark as spam** closes it
   and blocks the sender (new mail from them arrives closed); unblock at
   `/admin/spam`.
-- **Themes**: each agent picks their own from the avatar menu (Simple or
-  Simple Dark); it's saved to their account. To add a theme, list it in
-  `src/lib/themes.ts` and give it a `[data-theme="…"]` colour block in
-  `src/app/globals.css`.
+- **Themes**: each agent picks their own from the avatar menu (Simple,
+  Simple Dark or Campfire); it's saved to their account. To add a theme, list
+  it in `src/lib/themes.ts` and give it a `[data-theme="…"]` colour block in
+  `src/app/globals.css`. A theme can also show artwork along the bottom of the
+  portal: put the image in `public/themes/` and style `.theme-footer` for it,
+  as Campfire does.
 - **Saved views**: filters and sort live in the URL; "Save view" stores the
   current one in your sidebar.
 - **Search** is fuzzy (`pg_trgm`, enabled by migration 0001): typo-tolerant on

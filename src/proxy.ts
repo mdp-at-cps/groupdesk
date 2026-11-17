@@ -13,7 +13,7 @@ import { SESSION_COOKIE, readSessionToken, signInConfigured } from "@/lib/sessio
 const PUBLIC = [/^\/api\/auth\//, /^\/api\/gmail\/push$/, /^\/api\/cron\//, /^\/csat\//];
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|themes/).*)"],
 };
 
 export async function proxy(req: NextRequest) {
