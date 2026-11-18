@@ -7,6 +7,7 @@ import { themeById } from "@/lib/themes";
 export const metadata: Metadata = {
   title: APP_NAME,
   description: "Shared inbox for support mail",
+  icons: { icon: { url: "/favicon.png", type: "image/png", sizes: "32x32" } },
 };
 
 export default async function RootLayout({
