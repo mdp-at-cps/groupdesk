@@ -501,6 +501,31 @@ replies go out from.
 - **Missed mail.** `pnpm gmail:sync` (or "Sync now" on `/admin/gmail`) runs the
   catch-up by hand. Syncing is idempotent, so it's always safe to run.
 
+## Automatic deploys (GitHub Actions)
+
+- **Checks** (`.github/workflows/ci.yml`) runs `pnpm test` on every pull
+  request. It needs no secrets.
+- **Deploy** (`.github/workflows/deploy.yml`) runs on every push to `main`
+  (and from the Actions tab): the checks, then `pnpm cf:deploy`, which
+  migrates Neon and deploys the Worker. Deploys queue rather than overlap.
+
+So the live site always matches `main`: work on a branch, open a pull
+request, and merging it deploys. Nobody needs to deploy from their own
+machine, so nobody needs the production secrets locally.
+
+One-time setup, in the repository's **Settings → Secrets and variables →
+Actions**:
+
+| Kind | Name | Value |
+| --- | --- | --- |
+| Secret | `CLOUDFLARE_API_TOKEN` | A token from Cloudflare (My Profile → API Tokens → Create Token → "Edit Cloudflare Workers" template), limited to this account |
+| Secret | `DATABASE_URL` | The Neon connection string (the one in `.env.neon`) |
+| Variable | `CLOUDFLARE_ACCOUNT_ID` | The Cloudflare account ID (`pnpm exec wrangler whoami`) |
+
+The app's runtime secrets (Google, session keys and so on) stay in
+Cloudflare and aren't needed here. If two branches both add a migration,
+regenerate the later one after merging so the numbers don't clash.
+
 ## Contributing
 
 Issues and pull requests are welcome. Run `pnpm test` (typecheck, lint and the
