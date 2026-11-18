@@ -78,6 +78,20 @@
       "when": 1795033084929,
       "tag": "0010_signature_images",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1795036173533,
+      "tag": "0011_task_manager",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1795037930878,
+      "tag": "0012_task_filters",
+      "breakpoints": true
     }
   ]
 }

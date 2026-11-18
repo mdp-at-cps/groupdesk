@@ -330,6 +330,40 @@ and may cut those jobs short.
 
 ![Templates: the shared library, with variables to insert](docs/screenshots/templates.png)
 
+## Task Manager
+
+The **Tickets / Tasks** switch in the header opens the Task Manager at
+`/tasks`. Its sidebar has three filters (**My Tasks**, **All Tasks**,
+**Unassigned**) and your **Projects**.
+
+- **Tasks** have a title, description, assignee (any agent) and due date.
+  Click one to open it in the side panel; every field saves as you change it.
+  Tasks can have **subtasks** (one level), each with its own assignee and
+  due date.
+- **My Tasks** lists everything assigned to you, in every project, grouped
+  into Overdue, Today, Next 7 days, Later and No due date. A task added there
+  is assigned to you and belongs to no project.
+- **All Tasks** lists every task you can see (subtasks show as progress on
+  their parent); **Unassigned** narrows that to tasks nobody has taken yet.
+  Both have the same due-date groups and a Completed tab.
+- **Filters**: every list has a filter bar (assignee, project, due date,
+  search, include subtasks). Changes live in the URL; **Save as filter**
+  keeps the combination under **Filters** in your sidebar, with its open
+  count. On a saved filter, change the bar and **Update** it, or **Save as
+  new**; rename it from its title, and rename, reorder or delete it from the
+  ⋯ menu beside it in the sidebar. Saved filters are per agent
+  (`task_filters`), and only ever show tasks you can see.
+- **Projects** have a title, description and **members**. Only members can
+  see a project and its tasks, and only members can be assigned its tasks.
+  Whoever creates a project is its first member, and a project always keeps
+  at least one. Within a project, tasks can be grouped into **sections**,
+  which can be renamed, reordered and deleted (deleting one keeps its tasks).
+- A task in no project is visible to the agent who created it and the agent
+  it's assigned to.
+
+The rules live in `src/lib/tasks.ts` (reads) and `src/lib/actions/tasks.ts`
+(writes); admins have no extra access to projects they aren't members of.
+
 ## Crons and catch-up
 
 `wrangler.jsonc` declares Cron Triggers, and `worker.ts` maps each one to its
@@ -399,6 +433,9 @@ are generated from it with `pnpm db:generate`.
 | `ticket_presence` | Who has a ticket open or is typing (unlogged, disposable) |
 | `blocked_senders` | Senders marked as spam |
 | `gmail_sync` | The connected mailbox, encrypted refresh token, watch expiry and history cursor |
+| `signature_images` | Images agents put in their signatures, stored in R2 under `signatures/` |
+| `projects`, `project_members`, `project_sections`, `tasks` | The Task Manager: projects and who can see them, their sections, and tasks (with `parent_id` for subtasks) |
+| `task_filters` | Each agent's saved task filters: a name and the filter's query string |
 
 ## Layout
 

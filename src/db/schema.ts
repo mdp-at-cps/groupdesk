@@ -9,6 +9,9 @@ import {
   uuid,
   index,
   uniqueIndex,
+  date,
+  primaryKey,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql, relations } from "drizzle-orm";
 
@@ -498,3 +501,96 @@ export type Template = typeof templates.$inferSelect;
 export type SavedView = typeof savedViews.$inferSelect;
 export type TicketPriority = (typeof ticketPriority.enumValues)[number];
 export type TicketStatus = (typeof ticketStatus.enumValues)[number];
+
+/* ------------------------------------------------------------ task manager */
+
+/**
+ * Projects group tasks. Only members can see a project and its tasks; whoever
+ * creates one is its first member, and a project always keeps at least one.
+ */
+export const projects = pgTable("projects", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  title: text("title").notNull(),
+  description: text("description").notNull().default(""),
+  createdById: uuid("created_by_id").references(() => agents.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const projectMembers = pgTable(
+  "project_members",
+  {
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+  },
+  (t) => [primaryKey({ columns: [t.projectId, t.agentId] }), index("project_members_agent_idx").on(t.agentId)],
+);
+
+/** Headings a project's tasks are organised under, in `position` order. */
+export const projectSections = pgTable(
+  "project_sections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    position: integer("position").notNull().default(0),
+  },
+  (t) => [index("project_sections_project_idx").on(t.projectId)],
+);
+
+/**
+ * A task, or (with parentId) a subtask. Subtasks live in their parent's
+ * project. A task outside any project is visible to whoever created it and
+ * whoever it's assigned to.
+ */
+export const tasks = pgTable(
+  "tasks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    sectionId: uuid("section_id").references(() => projectSections.id, { onDelete: "set null" }),
+    parentId: uuid("parent_id").references((): AnyPgColumn => tasks.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    assigneeId: uuid("assignee_id").references(() => agents.id, { onDelete: "set null" }),
+    dueDate: date("due_date"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    position: integer("position").notNull().default(0),
+    createdById: uuid("created_by_id").references(() => agents.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("tasks_project_idx").on(t.projectId),
+    index("tasks_assignee_idx").on(t.assigneeId),
+    index("tasks_parent_idx").on(t.parentId),
+  ],
+);
+
+/**
+ * An agent's own saved task filter: a name and the filter's query string
+ * (src/lib/task-filters.ts), listed in their Task Manager sidebar.
+ */
+export const taskFilters = pgTable(
+  "task_filters",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    query: text("query").notNull(),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("task_filters_agent_idx").on(t.agentId)],
+);
+
+export type Project = typeof projects.$inferSelect;
+export type ProjectSection = typeof projectSections.$inferSelect;
+export type Task = typeof tasks.$inferSelect;

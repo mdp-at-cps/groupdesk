@@ -15,7 +15,10 @@ export function slugify(s: string) {
 }
 
 /** The portal's name: page titles, the sidebar, and automated mail. */
-export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || "Tickets";
+export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || "Batcave";
+
+/** A short line beside the name in the top bar. Set it empty to hide it. */
+export const APP_TAGLINE = process.env.NEXT_PUBLIC_APP_TAGLINE ?? "A secret lair for heroes.";
 
 /** How the team signs emails to requesters. */
 export const TEAM_NAME = process.env.NEXT_PUBLIC_TEAM_NAME || "Support Team";
