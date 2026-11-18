@@ -47,6 +47,9 @@ export default async function PortalLayout({
           <MobileNav tickets={sidebar} tasks={tasks} />
         </Suspense>
         <Link href="/tickets" className="flex items-baseline gap-2 text-sm font-semibold tracking-tight">
+          {/* As tall as the name's line (text-sm: 20px) and centred on it, not on the baseline. */}
+          {/* eslint-disable-next-line @next/next/no-img-element -- a 1 KB icon; next/image adds nothing */}
+          <img src="/favicon.png" alt="" aria-hidden width={20} height={20} className="size-5 shrink-0 self-center" />
           {APP_NAME}
           {APP_TAGLINE && (
             <span className="hidden text-xs font-normal italic tracking-normal text-[var(--muted-foreground)] sm:inline">
