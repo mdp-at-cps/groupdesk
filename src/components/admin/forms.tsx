@@ -4,7 +4,9 @@ import { useActionState, useRef, useEffect, useState } from "react";
 import { useFormStatus } from "react-dom";
 import type { ActionState } from "@/lib/actions/tickets";
 import { Button } from "@/components/ui/button";
-import { Input, Select } from "@/components/ui/input";
+import { Input, Select, Textarea } from "@/components/ui/input";
+import { MAX_SIGNATURE_LENGTH } from "@/lib/signature";
+import { useSignatureImages } from "@/components/signature-image";
 import * as Popover from "@radix-ui/react-popover";
 import { Pencil } from "lucide-react";
 
@@ -63,7 +65,7 @@ export function EditAgentButton({
   isSelf,
 }: {
   action: Action;
-  agent: { id: string; name: string; email: string; role: "agent" | "admin" };
+  agent: { id: string; name: string; email: string; role: "agent" | "admin"; signature: string | null };
   isSelf: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -79,7 +81,7 @@ export function EditAgentButton({
           align="end"
           sideOffset={6}
           collisionPadding={12}
-          className="z-50 w-80 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 text-sm shadow-lg"
+          className="z-50 w-96 max-w-[calc(100vw-24px)] rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 text-sm shadow-lg"
         >
           {/* Remounted on every open so the fields start from the saved values. */}
           {open && <EditAgentFields action={action} agent={agent} isSelf={isSelf} onDone={() => setOpen(false)} />}
@@ -96,7 +98,7 @@ function EditAgentFields({
   onDone,
 }: {
   action: Action;
-  agent: { id: string; name: string; email: string; role: "agent" | "admin" };
+  agent: { id: string; name: string; email: string; role: "agent" | "admin"; signature: string | null };
   isSelf: boolean;
   onDone: () => void;
 }) {
@@ -105,6 +107,14 @@ function EditAgentFields({
   const [name, setName] = useState(agent.name);
   const [email, setEmail] = useState(agent.email);
   const [role, setRole] = useState(agent.role);
+  const [signature, setSignature] = useState(agent.signature ?? "");
+  const signatureRef = useRef<HTMLTextAreaElement>(null);
+  const images = useSignatureImages({
+    textarea: signatureRef,
+    value: signature,
+    onChange: setSignature,
+    agentId: agent.id,
+  });
   useEffect(() => {
     if (state.ok) onDone();
   }, [state, onDone]);
@@ -149,11 +159,31 @@ function EditAgentFields({
           </Select>
         )}
       </label>
+      <label className="flex flex-col gap-1 text-xs font-medium">
+        Signature (HTML)
+        <Textarea
+          ref={signatureRef}
+          {...images.boxProps}
+          name="signature"
+          value={signature}
+          onChange={(e) => setSignature(e.target.value)}
+          rows={5}
+          spellCheck={false}
+          maxLength={MAX_SIGNATURE_LENGTH}
+          placeholder="Empty: the default (name and team)"
+          className="font-mono text-xs"
+        />
+        <span className="font-normal text-[var(--muted-foreground)]">
+          Agents can also set their own in Settings, with a preview.
+        </span>
+        {images.error && <span className="font-normal text-[var(--destructive)]">{images.error}</span>}
+      </label>
       <div className="flex items-center gap-2 pt-1">
         <Submit label="Save" />
         <Button type="button" size="sm" variant="ghost" onClick={onDone}>
           Cancel
         </Button>
+        <span className="ml-auto">{images.button}</span>
       </div>
       {state.error && <p className="text-xs text-[var(--destructive)]">{state.error}</p>}
     </form>

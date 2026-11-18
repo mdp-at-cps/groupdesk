@@ -54,6 +54,7 @@ export default async function AgentsPage() {
             <th className="py-2 font-semibold">Email</th>
             <th className="py-2 font-semibold">Role</th>
             <th className="py-2 font-semibold">Teams</th>
+            <th className="py-2 font-semibold">Signature</th>
             <th className="py-2" />
           </tr>
         </thead>
@@ -80,11 +81,14 @@ export default async function AgentsPage() {
                   memberOf={teamsByAgent.get(a.id) ?? []}
                 />
               </td>
+              <td className="py-2 pr-3 text-xs text-[var(--muted-foreground)]">
+                {a.signature ? "Custom" : "Default"}
+              </td>
               <td className="py-2 text-right">
                 <span className="flex justify-end gap-2">
                   <EditAgentButton
                     action={upsertAgent}
-                    agent={{ id: a.id, name: a.name, email: a.email, role: a.role }}
+                    agent={{ id: a.id, name: a.name, email: a.email, role: a.role, signature: a.signature }}
                     isSelf={a.id === me.id}
                   />
                   <ToggleAgentForm action={setAgentActive} id={a.id} active={a.active} />
@@ -94,7 +98,7 @@ export default async function AgentsPage() {
           ))}
           {agents.length === 0 && (
             <tr>
-              <td colSpan={5} className="py-6 text-xs text-[var(--muted-foreground)]">
+              <td colSpan={6} className="py-6 text-xs text-[var(--muted-foreground)]">
                 No agents yet.
               </td>
             </tr>

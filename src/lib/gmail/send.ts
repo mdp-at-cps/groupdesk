@@ -7,6 +7,8 @@ import { env } from "@/lib/env";
 import { taggedSubject } from "@/lib/ticket-subject";
 import { APP_NAME, TEAM_NAME, TIME_ZONE } from "@/lib/utils";
 import { extractInlineImages, storeInlineImages } from "@/lib/inline-images";
+import { cleanHtml, escapeHtml, signatureBlock } from "@/lib/signature";
+import { inlineSignatureImages, recordSignatureImages } from "@/lib/signature-images";
 import { gmailFor } from "./client";
 
 export type SentReply = {
@@ -41,7 +43,17 @@ export async function sendReply(args: {
   if (!ticket) throw new Error("Ticket not found");
 
   // Pasted/dropped images become inline cid: attachments (throws if too big).
-  const { html: bodyHtml, images } = extractInlineImages(args.bodyHtml);
+  const { html: bodyHtml, images: bodyImages } = extractInlineImages(args.bodyHtml);
+
+  // The agent's own signature, or the default block. Its images (uploaded in
+  // Settings, or embedded) go out inline like composer images; uploaded ones
+  // reuse their stored file for the portal copy instead of storing it again.
+  const signature = signatureBlock(args.agent, TEAM_NAME);
+  const embedded = extractInlineImages(signature.html);
+  const stored = await inlineSignatureImages(args.agent.id, embedded.html ?? "");
+  const signatureHtml = stored.html;
+  const newImages = [...bodyImages, ...embedded.images];
+  const images = [...newImages, ...stored.images];
 
   const { client } = await gmailFor();
   const { last, threadId, references } = await threadingFor(client, ticket);
@@ -67,7 +79,7 @@ export async function sendReply(args: {
     msg.setHeader("References", references.join(" "));
   }
 
-  const body = `${args.bodyText.trim()}\n\n--\n${args.agent.name}\n${TEAM_NAME}\nTicket #${ticket.number}\n`;
+  const body = `${args.bodyText.trim()}\n\n${signature.text}\n`;
   const quote = last ? quoteOf(last) : null;
   msg.addMessage({
     contentType: "text/plain",
@@ -82,7 +94,7 @@ export async function sendReply(args: {
     : escapeHtml(args.bodyText.trim()).replace(/\n/g, "<br>");
   const html =
     `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.4;color:#1f2328">${content}` +
-    `<p style="margin-top:16px;color:#6b7280">--<br>${escapeHtml(args.agent.name)}<br>${TEAM_NAME}<br>Ticket #${ticket.number}</p></div>` +
+    `${signatureHtml}</div>` +
     (quote?.html ?? "");
   msg.addMessage({ contentType: "text/html", encoding: "base64", data: base64Lines(html) });
   for (const img of images) {
@@ -143,7 +155,10 @@ export async function sendReply(args: {
     })
     .returning({ id: messages.id });
 
-  await storeInlineImages(row.id, images);
+  await storeInlineImages(row.id, newImages);
+  await recordSignatureImages(row.id, stored.reused).catch((err) =>
+    console.error("signature image rows failed", err),
+  );
 
   await db
     .update(tickets)
@@ -279,22 +294,6 @@ export async function sendTicketNotice(args: {
 /** Base64 in 76-character lines, so non-ASCII text and long HTML lines survive transit. */
 function base64Lines(s: string) {
   return (Buffer.from(s, "utf8").toString("base64").match(/.{1,76}/g) ?? []).join("\r\n");
-}
-
-function escapeHtml(s: string) {
-  return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-}
-
-/**
- * The composer only produces simple formatting, but the action accepts any
- * string, so drop anything active before it goes out or into the database.
- */
-function cleanHtml(html: string) {
-  return html
-    .replace(/<(script|style|iframe|object|embed|form)[\s\S]*?<\/\1>/gi, "")
-    .replace(/<(script|style|iframe|object|embed|form|link|meta)[^>]*>/gi, "")
-    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/(href|src)\s*=\s*(["']?)\s*javascript:[^"'\s>]*/gi, "$1=$2#");
 }
 
 /**

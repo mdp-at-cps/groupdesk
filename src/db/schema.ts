@@ -46,6 +46,8 @@ export const agents = pgTable(
     notifyEmail: boolean("notify_email").notNull().default(true),
     /** Their colour theme in the portal; one of THEMES in src/lib/themes.ts. */
     theme: text("theme").notNull().default("simple"),
+    /** Their HTML reply signature (src/lib/signature.ts); null means the default block. */
+    signature: text("signature"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -250,6 +252,30 @@ export const attachments = pgTable(
       .defaultNow(),
   },
   (t) => [index("attachments_message_idx").on(t.messageId)],
+);
+
+/**
+ * Images agents insert into their signatures, kept in R2 under signatures/.
+ * The signature HTML points at /api/signature-images/<id>; replies attach the
+ * same file inline, and the message's attachment row reuses its key, so these
+ * are never deleted.
+ */
+export const signatureImages = pgTable(
+  "signature_images",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    filename: text("filename").notNull(),
+    contentType: text("content_type").notNull(),
+    size: integer("size").notNull(),
+    blobUrl: text("blob_url").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("signature_images_agent_idx").on(t.agentId)],
 );
 
 /* ------------------------------------------------------------------ events */

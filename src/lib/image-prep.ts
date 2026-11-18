@@ -13,7 +13,11 @@ export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 export type PreparedImage = { src: string; name: string; bytes: number };
 
-export async function prepareImage(file: File): Promise<PreparedImage> {
+export async function prepareImage(
+  file: File,
+  /** Longest side in pixels; signatures use a smaller one than replies. */
+  maxSide = MAX_SIDE,
+): Promise<PreparedImage> {
   if (!IMAGE_TYPES.includes(file.type)) {
     throw new Error(`${file.name || "That file"} isn't a PNG, JPEG, GIF or WebP image.`);
   }
@@ -25,7 +29,7 @@ export async function prepareImage(file: File): Promise<PreparedImage> {
   }
 
   const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
   if (scale === 1 && file.size <= KEEP_BYTES) {
     bitmap.close();
     return { src: await dataUrl(file), name, bytes: file.size };

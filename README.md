@@ -308,6 +308,13 @@ and may cut those jobs short.
   pick the ticket to keep. **Mark as spam** closes it
   and blocks the sender (new mail from them arrives closed); unblock at
   `/admin/spam`.
+- **Signatures**: each agent writes their own HTML signature under
+  Settings (avatar menu), with a live preview; admins can also set one from
+  the Agents page. Replies end with it; with none set, they end with
+  the default name-and-team block. Scripts and forms are
+  stripped. "Insert image" (or paste/drop into the box) uploads a logo to R2
+  under `signatures/`; replies carry it as an inline attachment, so
+  recipients see it without loading remote images.
 - **Themes**: each agent picks their own from the avatar menu (Simple,
   Simple Dark or Campfire); it's saved to their account. To add a theme, list
   it in `src/lib/themes.ts` and give it a `[data-theme="…"]` colour block in

@@ -3,7 +3,8 @@
 import { useOptimistic, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import * as Popover from "@radix-ui/react-popover";
-import { Bell, Check, LogOut } from "lucide-react";
+import Link from "next/link";
+import { Bell, Check, LogOut, Settings } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
 import { setNotifyEmail, setTheme } from "@/lib/actions/views";
 import { THEMES, themeById } from "@/lib/themes";
@@ -132,6 +133,16 @@ export function UserMenu({
             ))}
           </div>
           <div className="my-1 h-px bg-[var(--border)]" />
+          <Popover.Close asChild>
+            <Link
+              href="/settings"
+              className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-[var(--accent)]"
+            >
+              <Settings className="size-4 text-[var(--muted-foreground)]" />
+              Settings
+              <span className="ml-auto text-[11px] text-[var(--muted-foreground)]">Signature</span>
+            </Link>
+          </Popover.Close>
           {logoutUrl ? (
             // A full page load, not a client navigation: it may leave for the provider.
             <a

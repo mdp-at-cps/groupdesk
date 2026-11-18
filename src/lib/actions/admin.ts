@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { and, eq, ne, sql } from "drizzle-orm";
 import { db } from "@/db";
+import { cleanSignature, MAX_SIGNATURE_LENGTH } from "@/lib/signature";
 import { agentTeams, agents, blockedSenders, tags, teams, gmailSync } from "@/db/schema";
 import { requireAdmin, requireGmailOwner } from "@/lib/auth";
 import { slugify } from "@/lib/utils";
@@ -62,7 +63,20 @@ export async function upsertAgent(
     if (!n) return { error: "There must be at least one active admin" };
   }
 
-  await db.update(agents).set({ email, name, role }).where(eq(agents.id, id));
+  // The edit form sends the signature too; other callers may leave it out.
+  const signatureRaw = form.get("signature");
+  if (signatureRaw !== null && String(signatureRaw).length > MAX_SIGNATURE_LENGTH)
+    return { error: "That signature is too long. Link to a hosted image instead of embedding one." };
+
+  await db
+    .update(agents)
+    .set({
+      email,
+      name,
+      role,
+      ...(signatureRaw !== null ? { signature: cleanSignature(String(signatureRaw)) } : {}),
+    })
+    .where(eq(agents.id, id));
 
   revalidatePath("/admin/agents");
   // Names and emails show on tickets, notes and assignee pickers too.
