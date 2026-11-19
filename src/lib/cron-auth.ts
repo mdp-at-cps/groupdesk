@@ -2,9 +2,9 @@ import { env } from "./env";
 
 /**
  * Cron routes are reachable without signing in (see proxy.ts), so they carry
- * their own shared secret. Vercel Cron sends
- * `Authorization: Bearer $CRON_SECRET`; external schedulers can use either
- * that or `?secret=`.
+ * their own shared secret. The Cloudflare Cron Trigger handler in worker.ts
+ * sends `Authorization: Bearer $CRON_SECRET`; external schedulers can use
+ * either that or `?secret=`.
  */
 export function cronAuthorized(req: Request): boolean {
   const expected = env.cronSecret;

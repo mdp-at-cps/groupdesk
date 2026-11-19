@@ -2,7 +2,14 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * Themes (src/lib/themes.ts). Each one is a block of colour variables on
+ * <html data-theme="…">; dark themes also get the `dark` class.
+ */
+
+/* Simple (default) */
 :root {
+  color-scheme: light;
   --background: oklch(1 0 0);
   --foreground: oklch(0.21 0.02 264);
   --card: oklch(1 0 0);
@@ -21,7 +28,9 @@
   --radius: 0.625rem;
 }
 
-.dark {
+/* Simple Dark */
+[data-theme="simple-dark"] {
+  color-scheme: dark;
   --background: oklch(0.17 0.012 264);
   --foreground: oklch(0.96 0.003 264);
   --card: oklch(0.21 0.014 264);
@@ -37,6 +46,52 @@
   --accent-foreground: oklch(0.96 0.003 264);
   --destructive: oklch(0.65 0.19 25);
   --destructive-foreground: oklch(0.15 0.01 264);
+}
+
+/* Campfire: Simple Dark under a starry night sky, lit by the fire. Colours
+   are taken from the campfire picture, which sits along the bottom of
+   the main column. */
+[data-theme="campfire"] {
+  color-scheme: dark;
+  --background: #032b47;
+  --foreground: oklch(0.96 0.015 85);
+  --card: #08365a;
+  --card-foreground: oklch(0.96 0.015 85);
+  --muted: #0b3d63;
+  --muted-foreground: oklch(0.78 0.035 235);
+  --border: #1a4a70;
+  --input: #1a4a70;
+  --ring: oklch(0.78 0.16 70);
+  --primary: oklch(0.79 0.16 70);
+  --primary-foreground: oklch(0.22 0.05 60);
+  --accent: #0f4569;
+  --accent-foreground: oklch(0.96 0.015 85);
+  --destructive: oklch(0.66 0.19 28);
+  --destructive-foreground: oklch(0.15 0.02 255);
+}
+/* The sky: two star layers at different sizes so the pattern never visibly
+   repeats, over the picture's own gradient (darker overhead, lighter toward
+   the mountains). */
+[data-theme="campfire"] body {
+  background:
+    url("/themes/campfire-stars.svg") 0 0 / 480px,
+    url("/themes/campfire-stars.svg") 170px 90px / 290px,
+    linear-gradient(#021e35, #022b46 45%, #064269) fixed;
+  background-color: #032b47;
+}
+
+/* Footer artwork, shown only by themes that have some. It spans everything
+   right of the navigation sidebar, the ticket page's details panel included. */
+.theme-footer { display: none; }
+[data-theme="campfire"] .theme-footer {
+  display: block;
+  flex-shrink: 0;
+  /* The whole picture (public/themes/campfire.webp, its sky transparent so
+     the page's stars show through), as wide as the column; in a short
+     window it is capped and centred instead. */
+  aspect-ratio: 1800 / 500;
+  max-height: 30vh;
+  background: url("/themes/campfire.webp") center bottom / contain no-repeat;
 }
 
 @theme inline {
@@ -127,3 +182,14 @@
   --series-2: #d95926;
   --grid: oklch(0.3 0.012 264);
 }
+
+/* Email HTML is written for white paper; dark themes keep it on a light card. */
+.dark .email-paper {
+  background: #fff;
+  border-radius: calc(var(--radius) - 2px);
+  padding: 0.75rem 0.875rem;
+}
+
+/* Inline images in the composer. */
+.rich-editor img { display: inline-block; max-width: 100%; height: auto; border-radius: 4px; vertical-align: bottom; }
+.rich-editor img.ProseMirror-selectednode { outline: 2px solid var(--primary); outline-offset: 1px; }

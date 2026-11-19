@@ -519,7 +519,12 @@ export async function recentRequesters(limit = 300) {
 
 /** The requester's other tickets, newest first, for the ticket sidebar. */
 export async function requesterHistory(email: string, excludeId: string, limit = 8) {
-  const where = and(sql`lower(${tickets.requesterEmail}) = ${email.toLowerCase()}`, ne(tickets.id, excludeId));
+  // Merged tickets live on inside the one they went into, so they're left out.
+  const where = and(
+    sql`lower(${tickets.requesterEmail}) = ${email.toLowerCase()}`,
+    ne(tickets.id, excludeId),
+    sql`${tickets.mergedIntoId} is null`,
+  );
   const [rows, [count]] = await Promise.all([
     db
       .select({

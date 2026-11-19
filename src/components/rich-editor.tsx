@@ -5,9 +5,11 @@ import Link from "next/link";
 import { EditorContent, useEditor, useEditorState, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
+import Image from "@tiptap/extension-image";
 import {
   Bold,
   FileText,
+  ImagePlus,
   Italic,
   Link as LinkIcon,
   List,
@@ -18,6 +20,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fillTemplate, type TemplateVars } from "@/lib/template-vars";
+import { IMAGE_TYPES, imageFiles, prepareImage } from "@/lib/image-prep";
 
 export type { Editor };
 export type RichValue = { html: string; text: string; empty: boolean };
@@ -38,9 +41,14 @@ type SlashState = {
 const MENU_HEIGHT = 290;
 export type MentionOption = { id: string; name: string; email: string };
 
+/** Room for images in one message's HTML (data: URLs), under the 25 MB request limit. */
+const MAX_HTML_CHARS = 20_000_000;
+
 /**
  * Small rich-text editor for replies: bold/italic/underline/strike, lists,
  * quotes and links. Standard shortcuts work (⌘B, ⌘I, ⌘U, ⌘K for a link).
+ * With `images`, pictures can be added from the toolbar, pasted or dropped;
+ * they travel as data: URLs and become inline attachments on send.
  */
 export function RichEditor({
   placeholder,
@@ -55,7 +63,10 @@ export function RichEditor({
   variables,
   editorRef,
   mentions,
+  images = false,
 }: {
+  /** Allows inline images: toolbar button, paste and drag-and-drop. */
+  images?: boolean;
   /** Enables "@" suggestions (internal notes): inserts "@Full Name". */
   mentions?: MentionOption[];
   placeholder: string;
@@ -77,7 +88,12 @@ export function RichEditor({
   className?: string;
 }) {
   const [slash, setSlash] = useState<SlashState | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
   const boxRef = useRef<HTMLDivElement>(null);
+  // Set once the editor exists; the editor's own handlers call it via the ref.
+  const insertImagesRef = useRef<(files: File[], pos?: number) => void>(() => {});
   // The editor's handlers are created once, so they read live values via refs.
   const matches =
     slash?.kind === "template" && templates
@@ -140,8 +156,26 @@ export function RichEditor({
         link: { openOnClick: false, autolink: true, defaultProtocol: "https" },
       }),
       Placeholder.configure({ placeholder }),
+      ...(images ? [Image.configure({ inline: true, allowBase64: true })] : []),
     ],
     editorProps: {
+      handlePaste: (_view, event) => {
+        if (!images) return false;
+        const files = imageFiles(event.clipboardData?.files);
+        if (!files.length) return false;
+        event.preventDefault();
+        insertImagesRef.current(files);
+        return true;
+      },
+      handleDrop: (view, event, _slice, moved) => {
+        if (!images || moved) return false;
+        const files = imageFiles(event.dataTransfer?.files);
+        if (!files.length) return false;
+        event.preventDefault();
+        const pos = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
+        insertImagesRef.current(files, pos);
+        return true;
+      },
       attributes: {
         class:
           "rich-editor min-h-28 max-h-[45vh] overflow-y-auto px-3 py-2.5 text-[15px] leading-normal outline-none",
@@ -199,6 +233,65 @@ export function RichEditor({
   }, [editor, editorRef]);
 
   useEffect(() => {
+    insertImagesRef.current = async (files, pos) => {
+      if (!editor) return;
+      setImageError(null);
+      let at = pos;
+      for (const file of files) {
+        try {
+          const img = await prepareImage(file);
+          if (editor.getHTML().length + img.src.length > MAX_HTML_CHARS) {
+            throw new Error("That's as many images as one message can carry.");
+          }
+          const node = { type: "image", attrs: { src: img.src, alt: img.name } };
+          if (at != null) {
+            editor.chain().focus().insertContentAt(at, node).run();
+            at += 1;
+          } else {
+            editor.chain().focus().insertContent(node).run();
+          }
+        } catch (err) {
+          setImageError(err instanceof Error ? err.message : String(err));
+        }
+      }
+    };
+  }, [editor]);
+
+  useEffect(() => {
+    if (!imageError) return;
+    const t = setTimeout(() => setImageError(null), 6000);
+    return () => clearTimeout(t);
+  }, [imageError]);
+
+  /** Dragging files over the editor: show where they'll go. */
+  const dragProps = images
+    ? {
+        onDragEnter: (e: React.DragEvent) => {
+          if (!e.dataTransfer.types.includes("Files")) return;
+          dragDepth.current += 1;
+          setDragging(true);
+        },
+        onDragOver: (e: React.DragEvent) => {
+          if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+        },
+        onDragLeave: () => {
+          dragDepth.current = Math.max(0, dragDepth.current - 1);
+          if (!dragDepth.current) setDragging(false);
+        },
+        onDrop: (e: React.DragEvent) => {
+          dragDepth.current = 0;
+          setDragging(false);
+          // Drops on the text itself were handled (and placed) by the editor.
+          if (e.defaultPrevented) return;
+          const files = imageFiles(e.dataTransfer.files);
+          if (!files.length) return;
+          e.preventDefault();
+          insertImagesRef.current(files);
+        },
+      }
+    : {};
+
+  useEffect(() => {
     if (editor && autoFocusKey) editor.commands.focus("end");
   }, [editor, autoFocusKey]);
 
@@ -209,9 +302,23 @@ export function RichEditor({
   }, [editor, resetKey]);
 
   return (
-    <div ref={boxRef} className={cn("relative flex flex-col", className)}>
-      <Toolbar editor={editor} hasTemplates={!!templates} />
+    <div ref={boxRef} className={cn("relative flex flex-col", className)} {...dragProps}>
+      <Toolbar
+        editor={editor}
+        hasTemplates={!!templates}
+        onPickImages={images ? (files) => insertImagesRef.current(files) : undefined}
+      />
       <EditorContent editor={editor} />
+      {dragging && (
+        <div className="pointer-events-none absolute inset-0 z-30 grid place-items-center rounded-[inherit] border-2 border-dashed border-[var(--primary)] bg-[var(--card)]/80 text-sm font-medium text-[var(--primary)]">
+          Drop images to add them
+        </div>
+      )}
+      {imageError && (
+        <p role="alert" className="border-t border-[var(--border)] px-3 py-1.5 text-xs text-red-600">
+          {imageError}
+        </p>
+      )}
       {slash && editor && (
         <div
           className="absolute z-40 flex w-72 flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--card)] p-1 shadow-lg"
@@ -318,7 +425,17 @@ function promptLink(editor: Editor | null) {
   editor.chain().focus().extendMarkRange("link").setLink({ href: url.trim() }).run();
 }
 
-function Toolbar({ editor, hasTemplates }: { editor: Editor | null; hasTemplates: boolean }) {
+function Toolbar({
+  editor,
+  hasTemplates,
+  onPickImages,
+}: {
+  editor: Editor | null;
+  hasTemplates: boolean;
+  /** Shows the "Insert image" button. */
+  onPickImages?: (files: File[]) => void;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
   const active = useEditorState({
     editor,
     selector: ({ editor: e }) =>
@@ -375,6 +492,32 @@ function Toolbar({ editor, hasTemplates }: { editor: Editor | null; hasTemplates
           </button>
         </span>
       ))}
+      {onPickImages && (
+        <span className="flex items-center">
+          <button
+            type="button"
+            title="Insert image (or paste / drop one)"
+            aria-label="Insert image"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => fileRef.current?.click()}
+            className="grid size-7 place-items-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+          >
+            <ImagePlus className="size-3.5" />
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept={IMAGE_TYPES.join(",")}
+            multiple
+            hidden
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
+              e.target.value = "";
+              if (files.length) onPickImages(files);
+            }}
+          />
+        </span>
+      )}
       {hasTemplates && (
         <button
           type="button"

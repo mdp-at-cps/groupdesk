@@ -5,8 +5,7 @@ import { gmailSync } from "@/db/schema";
 import { requireGmailOwner } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { encryptSecret } from "@/lib/crypto";
-import { oauthClient } from "@/lib/gmail/client";
-import { gmail } from "@googleapis/gmail";
+import { gmailApi, oauthClient } from "@/lib/gmail/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,14 +39,20 @@ export async function GET(req: Request) {
   const { tokens } = await client.getToken(code!);
 
   if (!tokens.refresh_token) {
+    // Field names only (never values), to tell "Google withheld it" apart
+    // from "the reply wasn't parsed".
+    console.warn("gmail connect: no refresh token", {
+      type: typeof tokens,
+      fields: tokens && typeof tokens === "object" ? Object.keys(tokens) : [],
+      scope: (tokens as { scope?: string })?.scope,
+    });
     back(
       "Google did not return a refresh token. Remove the app at myaccount.google.com/permissions and connect again.",
     );
   }
 
   client.setCredentials(tokens);
-  const { data: profile } = await gmail({ version: "v1", auth: client })
-    .users.getProfile({ userId: "me" });
+  const { data: profile } = await gmailApi(client).users.getProfile({ userId: "me" });
 
   if (!profile.emailAddress) back("Could not read the mailbox address");
 

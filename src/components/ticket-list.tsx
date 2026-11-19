@@ -3,7 +3,7 @@
 import { forwardRef, useEffect, useOptimistic, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Loader2, Star, Tag as TagIcon, UserRound, Users, X } from "lucide-react";
+import { Loader2, Merge, Star, Tag as TagIcon, UserRound, Users, X } from "lucide-react";
 import type { TicketFilters, TicketListItem } from "@/lib/queries";
 import type { PhotoMap } from "@/lib/people";
 import type { TicketPriority, TicketStatus } from "@/db/schema";
@@ -11,6 +11,7 @@ import {
   assignToMe,
   bulkUpdate,
   loadMoreTickets,
+  mergeTickets,
   toggleStar,
   type BulkOp,
 } from "@/lib/actions/tickets";
@@ -32,7 +33,7 @@ import { cn } from "@/lib/utils";
 
 type AgentOption = { id: string; name: string; email: string };
 type Option = { id: string; name: string };
-type BulkPicker = "status" | "priority" | "assignee" | "team" | "tags";
+type BulkPicker = "status" | "priority" | "assignee" | "team" | "tags" | "merge";
 
 export function TicketList({
   rows: firstPage,
@@ -172,6 +173,37 @@ export function TicketList({
     });
   }
 
+  /** Folds every other selected ticket into `keepId`. */
+  function merge(keepId: string) {
+    const keep = selectedRows.find((r) => r.id === keepId);
+    const others = selectedRows.filter((r) => r.id !== keepId).sort((a, b) => a.number - b.number);
+    if (!keep || !others.length) return;
+    const list = others.map((r) => `#${r.number}`).join(", ");
+    if (
+      !window.confirm(
+        `Merge ${list} into #${keep.number} “${keep.subject}”?\n\nTheir emails, notes, tags and assignees move to #${keep.number}, and ${others.length === 1 ? "that ticket is" : "those tickets are"} closed.`,
+      )
+    )
+      return;
+    const ids = selectedRows.map((r) => r.id);
+    startBulk(async () => {
+      try {
+        const r = await mergeTickets(ids, keepId);
+        if (r.error) setToast({ text: r.error, bad: true });
+        else {
+          setToast({ text: r.ok ?? "Merged" });
+          setPicked(new Set());
+          // Later pages aren't re-rendered by the server; drop the merged rows here.
+          const gone = new Set(others.map((o) => o.id));
+          setExtra((prev) => ({ ...prev, rows: prev.rows.filter((row) => !gone.has(row.id)) }));
+          router.refresh();
+        }
+      } catch (err) {
+        setToast({ text: err instanceof Error ? err.message : String(err), bad: true });
+      }
+    });
+  }
+
   /* ------------------------------------------------------------- hotkeys */
 
   useEffect(() => {
@@ -222,6 +254,7 @@ export function TicketList({
           c: () => setBulkPicker("status"),
           t: () => setBulkPicker("tags"),
           m: () => setBulkPicker("team"),
+          M: () => selected.size > 1 && setBulkPicker("merge"),
         }
       : {}),
   });
@@ -555,6 +588,30 @@ export function TicketList({
             >
               {selectedRows.every((r) => starred.has(r.id)) ? "Unstar" : "Star"}
             </BarButton>
+            {selected.size > 1 && (
+              <Picker
+                side="top"
+                align="center"
+                open={bulkPicker === "merge"}
+                onOpenChange={(o) => setBulkPicker(o ? "merge" : null)}
+                placeholder="Keep which ticket?"
+                selected={[]}
+                items={[...selectedRows]
+                  .sort((a, b) => a.number - b.number)
+                  .map((r) => ({
+                    value: r.id,
+                    label: `#${r.number} ${r.subject}`,
+                    keywords: [r.requesterEmail, r.requesterName ?? ""],
+                    icon: <StatusIcon status={r.status} />,
+                  }))}
+                onSelect={merge}
+                trigger={
+                  <BarButton k="⇧m" icon={<Merge className="size-3.5" />} disabled={pending}>
+                    Merge
+                  </BarButton>
+                }
+              />
+            )}
 
             <span className="mx-1 h-5 w-px bg-[var(--border)]" />
             <button

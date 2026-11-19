@@ -2,6 +2,7 @@
 import "./load-env";
 import { Pool, neonConfig } from "@neondatabase/serverless";
 import ws from "ws";
+import "../src/db/local-proxy";
 
 if (typeof WebSocket === "undefined") neonConfig.webSocketConstructor = ws;
 

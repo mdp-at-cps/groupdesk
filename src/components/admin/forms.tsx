@@ -4,7 +4,11 @@ import { useActionState, useRef, useEffect, useState } from "react";
 import { useFormStatus } from "react-dom";
 import type { ActionState } from "@/lib/actions/tickets";
 import { Button } from "@/components/ui/button";
-import { Input, Select } from "@/components/ui/input";
+import { Input, Select, Textarea } from "@/components/ui/input";
+import { MAX_SIGNATURE_LENGTH } from "@/lib/signature";
+import { useSignatureImages } from "@/components/signature-image";
+import * as Popover from "@radix-ui/react-popover";
+import { Pencil } from "lucide-react";
 
 type Action = (prev: ActionState, form: FormData) => Promise<ActionState>;
 
@@ -50,6 +54,138 @@ export function AddAgentForm({ action }: { action: Action }) {
       </Select>
       <Submit label="Add agent" />
       <Status state={state} />
+    </form>
+  );
+}
+
+/** "Edit" on an agent row: change their name, email or role. */
+export function EditAgentButton({
+  action,
+  agent,
+  isSelf,
+}: {
+  action: Action;
+  agent: { id: string; name: string; email: string; role: "agent" | "admin"; signature: string | null };
+  isSelf: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>
+        <Button type="button" size="sm" variant="outline" aria-label={`Edit ${agent.name}`}>
+          <Pencil className="size-3.5" /> Edit
+        </Button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          align="end"
+          sideOffset={6}
+          collisionPadding={12}
+          className="z-50 w-96 max-w-[calc(100vw-24px)] rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 text-sm shadow-lg"
+        >
+          {/* Remounted on every open so the fields start from the saved values. */}
+          {open && <EditAgentFields action={action} agent={agent} isSelf={isSelf} onDone={() => setOpen(false)} />}
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+function EditAgentFields({
+  action,
+  agent,
+  isSelf,
+  onDone,
+}: {
+  action: Action;
+  agent: { id: string; name: string; email: string; role: "agent" | "admin"; signature: string | null };
+  isSelf: boolean;
+  onDone: () => void;
+}) {
+  const [state, formAction] = useActionState<ActionState, FormData>(action, {});
+  // Controlled, so a refused save (say, an email that's taken) keeps what was typed.
+  const [name, setName] = useState(agent.name);
+  const [email, setEmail] = useState(agent.email);
+  const [role, setRole] = useState(agent.role);
+  const [signature, setSignature] = useState(agent.signature ?? "");
+  const signatureRef = useRef<HTMLTextAreaElement>(null);
+  const images = useSignatureImages({
+    textarea: signatureRef,
+    value: signature,
+    onChange: setSignature,
+    agentId: agent.id,
+  });
+  useEffect(() => {
+    if (state.ok) onDone();
+  }, [state, onDone]);
+
+  return (
+    <form action={formAction} className="flex flex-col gap-2.5">
+      <input type="hidden" name="id" value={agent.id} />
+      <label className="flex flex-col gap-1 text-xs font-medium">
+        Name
+        <Input name="name" value={name} onChange={(e) => setName(e.target.value)} required autoFocus maxLength={100} />
+      </label>
+      <label className="flex flex-col gap-1 text-xs font-medium">
+        Email
+        {isSelf ? (
+          <>
+            <input type="hidden" name="email" value={agent.email} />
+            <Input value={agent.email} disabled readOnly />
+          </>
+        ) : (
+          <Input name="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        )}
+        <span className="font-normal text-[var(--muted-foreground)]">
+          {isSelf
+            ? "Another admin can change your email."
+            : "They sign in with this address, so it must match their identity provider account."}
+        </span>
+      </label>
+      <label className="flex flex-col gap-1 text-xs font-medium">
+        Role
+        {isSelf ? (
+          <>
+            <input type="hidden" name="role" value={agent.role} />
+            <Select value={agent.role} disabled>
+              <option value="agent">Agent</option>
+              <option value="admin">Admin</option>
+            </Select>
+          </>
+        ) : (
+          <Select name="role" value={role} onChange={(e) => setRole(e.target.value as "agent" | "admin")}>
+            <option value="agent">Agent</option>
+            <option value="admin">Admin</option>
+          </Select>
+        )}
+      </label>
+      <label className="flex flex-col gap-1 text-xs font-medium">
+        Signature (HTML)
+        <Textarea
+          ref={signatureRef}
+          {...images.boxProps}
+          name="signature"
+          value={signature}
+          onChange={(e) => setSignature(e.target.value)}
+          rows={5}
+          spellCheck={false}
+          maxLength={MAX_SIGNATURE_LENGTH}
+          placeholder="Empty: the default (name and team)"
+          className="font-mono text-xs"
+        />
+        <span className="font-normal text-[var(--muted-foreground)]">
+          Agents can also set their own in Settings, with a preview.
+        </span>
+        {images.error && <span className="font-normal text-[var(--destructive)]">{images.error}</span>}
+      </label>
+      <div className="flex items-center gap-2 pt-1">
+        <Submit label="Save" />
+        <Button type="button" size="sm" variant="ghost" onClick={onDone}>
+          Cancel
+        </Button>
+        <span className="ml-auto">{images.button}</span>
+      </div>
+      {state.error && <p className="text-xs text-[var(--destructive)]">{state.error}</p>}
     </form>
   );
 }

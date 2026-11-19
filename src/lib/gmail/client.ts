@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { gmailSync } from "@/db/schema";
 import { decryptSecret } from "@/lib/crypto";
 import { env } from "@/lib/env";
+import { gmailRootUrl, googleTransport, oauthEndpoints } from "./endpoints";
 
 export const GMAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
@@ -14,11 +15,18 @@ export const GMAIL_SCOPES = [
 ];
 
 export function oauthClient() {
-  return new auth.OAuth2(
-    env.googleClientId,
-    env.googleClientSecret,
-    env.googleRedirectUri,
-  );
+  return new auth.OAuth2({
+    clientId: env.googleClientId,
+    clientSecret: env.googleClientSecret,
+    redirectUri: env.googleRedirectUri,
+    endpoints: oauthEndpoints,
+    transporterOptions: googleTransport,
+  });
+}
+
+/** A Gmail API client for an authorised OAuth client. */
+export function gmailApi(client: InstanceType<typeof auth.OAuth2>): GmailClient {
+  return gmail({ version: "v1", auth: client, rootUrl: gmailRootUrl, ...googleTransport });
 }
 
 export function consentUrl(state: string) {
@@ -73,7 +81,7 @@ export async function gmailFor(email?: string): Promise<{
   email: string;
 }> {
   const { auth: client, email: mailbox } = await googleAuthFor(email);
-  return { client: gmail({ version: "v1", auth: client }), email: mailbox };
+  return { client: gmailApi(client), email: mailbox };
 }
 
 export async function recordError(email: string, message: string | null) {

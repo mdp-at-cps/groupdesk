@@ -23,6 +23,7 @@ import { requireAgent } from "@/lib/auth";
 import { listTickets, type TicketFilters } from "@/lib/queries";
 import { photosFor } from "@/lib/people";
 import { emailHtml, sendReply } from "@/lib/gmail/send";
+import { extractInlineImages, storeInlineImages } from "@/lib/inline-images";
 import { env } from "@/lib/env";
 import { sendCsatSurveys } from "@/lib/csat";
 
@@ -277,12 +278,53 @@ export async function setRequester(
 
 /* ---------------------------------------------------------- merge / spam */
 
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type TicketRow = typeof tickets.$inferSelect;
+
 /**
- * Merge `sourceId` into ticket #`targetNumber`: its emails, notes, activity,
- * tags, assignees and stars move over, and the old ticket is closed with a
- * pointer so its number keeps working (the page redirects, and replies to it
- * land on the target).
+ * Moves everything on `source` (emails, notes, activity, tags, assignees,
+ * stars) onto `target` and closes `source` with a pointer, so its number keeps
+ * working: the page redirects, and replies to it land on the target.
  */
+async function mergeInto(tx: Tx, source: TicketRow, target: TicketRow, agentId: string) {
+  await tx.update(messages).set({ ticketId: target.id }).where(eq(messages.ticketId, source.id));
+  await tx.update(events).set({ ticketId: target.id }).where(eq(events.ticketId, source.id));
+  await tx.execute(sql`
+    insert into ticket_tags (ticket_id, tag_id)
+    select ${target.id}, tag_id from ticket_tags where ticket_id = ${source.id}
+    on conflict do nothing`);
+  await tx.execute(sql`
+    insert into ticket_assignees (ticket_id, agent_id)
+    select ${target.id}, agent_id from ticket_assignees where ticket_id = ${source.id}
+    on conflict do nothing`);
+  await tx.execute(sql`
+    insert into ticket_stars (agent_id, ticket_id)
+    select agent_id, ${target.id} from ticket_stars where ticket_id = ${source.id}
+    on conflict do nothing`);
+  await tx.delete(ticketTags).where(eq(ticketTags.ticketId, source.id));
+  await tx.delete(ticketAssignees).where(eq(ticketAssignees.ticketId, source.id));
+  await tx.delete(ticketStars).where(eq(ticketStars.ticketId, source.id));
+  await tx
+    .update(tickets)
+    .set({
+      createdAt: sql`least(${tickets.createdAt}, ${source.createdAt})`,
+      lastMessageAt: sql`greatest(${tickets.lastMessageAt}, ${source.lastMessageAt})`,
+      updatedAt: new Date(),
+    })
+    .where(eq(tickets.id, target.id));
+  await tx
+    .update(tickets)
+    .set({ status: "closed", mergedIntoId: target.id, updatedAt: new Date() })
+    .where(eq(tickets.id, source.id));
+  await tx.insert(events).values({
+    ticketId: target.id,
+    actorAgentId: agentId,
+    kind: "merged",
+    data: { fromNumber: source.number, fromSubject: source.subject },
+  });
+}
+
+/** Merge `sourceId` into ticket #`targetNumber` (the ticket page's ⋯ menu). */
 export async function mergeTicket(
   sourceId: string,
   targetNumber: number,
@@ -293,48 +335,43 @@ export async function mergeTicket(
   if (!target) return { error: `There's no ticket #${targetNumber}` };
   if (target.id === source.id) return { error: "That's this ticket" };
   if (target.mergedIntoId) return { error: `#${targetNumber} was itself merged; pick the ticket it went into` };
+  if (source.mergedIntoId) return { error: `#${source.number} was already merged` };
 
-  await db.transaction(async (tx) => {
-    await tx.update(messages).set({ ticketId: target.id }).where(eq(messages.ticketId, source.id));
-    await tx.update(events).set({ ticketId: target.id }).where(eq(events.ticketId, source.id));
-    await tx.execute(sql`
-      insert into ticket_tags (ticket_id, tag_id)
-      select ${target.id}, tag_id from ticket_tags where ticket_id = ${source.id}
-      on conflict do nothing`);
-    await tx.execute(sql`
-      insert into ticket_assignees (ticket_id, agent_id)
-      select ${target.id}, agent_id from ticket_assignees where ticket_id = ${source.id}
-      on conflict do nothing`);
-    await tx.execute(sql`
-      insert into ticket_stars (agent_id, ticket_id)
-      select agent_id, ${target.id} from ticket_stars where ticket_id = ${source.id}
-      on conflict do nothing`);
-    await tx.delete(ticketTags).where(eq(ticketTags.ticketId, source.id));
-    await tx.delete(ticketAssignees).where(eq(ticketAssignees.ticketId, source.id));
-    await tx.delete(ticketStars).where(eq(ticketStars.ticketId, source.id));
-    await tx
-      .update(tickets)
-      .set({
-        createdAt: sql`least(${tickets.createdAt}, ${source.createdAt})`,
-        lastMessageAt: sql`greatest(${tickets.lastMessageAt}, ${source.lastMessageAt})`,
-        updatedAt: new Date(),
-      })
-      .where(eq(tickets.id, target.id));
-    await tx
-      .update(tickets)
-      .set({ status: "closed", mergedIntoId: target.id, updatedAt: new Date() })
-      .where(eq(tickets.id, source.id));
-    await tx.insert(events).values({
-      ticketId: target.id,
-      actorAgentId: agent.id,
-      kind: "merged",
-      data: { fromNumber: source.number, fromSubject: source.subject },
-    });
-  });
+  await db.transaction((tx) => mergeInto(tx, source, target, agent.id));
 
   refresh(source.number);
   refresh(target.number);
   return { ok: `Merged into #${target.number}`, number: target.number };
+}
+
+/**
+ * Merge several tickets at once (the ticket list's bulk bar): every ticket in
+ * `ticketIds` other than `keepId` goes into `keepId`.
+ */
+export async function mergeTickets(
+  ticketIds: string[],
+  keepId: string,
+): Promise<ActionState & { number?: number }> {
+  const { agent } = await requireAgent();
+  const ids = [...new Set(ticketIds)];
+  if (!ids.includes(keepId)) return { error: "Pick one of the selected tickets to keep" };
+  if (ids.length < 2) return { error: "Select at least two tickets to merge" };
+  if (ids.length > 50) return { error: "Merge at most 50 tickets at a time" };
+
+  const rows = await db.select().from(tickets).where(inArray(tickets.id, ids));
+  const target = rows.find((r) => r.id === keepId);
+  if (!target || rows.length !== ids.length) return { error: "Some of those tickets no longer exist" };
+  const merged = rows.find((r) => r.mergedIntoId);
+  if (merged) return { error: `#${merged.number} was already merged; refresh the list` };
+
+  const sources = rows.filter((r) => r.id !== keepId).sort((a, b) => a.number - b.number);
+  await db.transaction(async (tx) => {
+    for (const source of sources) await mergeInto(tx, source, target, agent.id);
+  });
+
+  for (const r of rows) refresh(r.number);
+  const n = sources.length;
+  return { ok: `Merged ${n} ticket${n === 1 ? "" : "s"} into #${target.number}`, number: target.number };
 }
 
 /** Candidates for "Merge into…": fuzzy search by subject, person or #number. */
@@ -628,7 +665,7 @@ export async function replyToTicket(
   const ticketId = String(form.get("ticketId"));
   const bodyText = String(form.get("body") ?? "").trim();
   const bodyHtml = String(form.get("bodyHtml") ?? "").trim() || null;
-  if (!bodyText) return { error: "Write something first" };
+  if (!bodyText && !hasImage(bodyHtml)) return { error: "Write something first" };
 
   let to: string[], cc: string[], bcc: string[];
   try {
@@ -651,6 +688,11 @@ export async function replyToTicket(
 
   refresh(ticket.number);
   return { ok: "Reply sent" };
+}
+
+/** True when the composer HTML holds an image, so an image-only message counts. */
+function hasImage(html: string | null | undefined) {
+  return !!html && /<img\b/i.test(html);
 }
 
 /** A JSON array of addresses from the composer, validated and de-duplicated. */
@@ -687,7 +729,7 @@ export async function startTicket(input: {
   const subject = input.subject.trim();
   const bodyText = input.bodyText.trim();
   if (!subject) return { error: "Add a subject" };
-  if (!bodyText) return { error: "Write something first" };
+  if (!bodyText && !hasImage(input.bodyHtml)) return { error: "Write something first" };
 
   let to: string[], cc: string[], bcc: string[];
   try {
@@ -742,13 +784,20 @@ export async function addNote(
   const ticketId = String(form.get("ticketId"));
   const body = String(form.get("body") ?? "").trim();
   const rawHtml = String(form.get("bodyHtml") ?? "").trim();
-  const bodyHtml = rawHtml ? emailHtml(rawHtml) : null;
-  if (!body) return { error: "Write something first" };
+  if (!body && !hasImage(rawHtml)) return { error: "Write something first" };
+
+  let extracted: ReturnType<typeof extractInlineImages>;
+  try {
+    extracted = extractInlineImages(rawHtml || null);
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+  const bodyHtml = extracted.html ? emailHtml(extracted.html) : null;
 
   const ticket = await ticketOr404(ticketId);
   const now = new Date();
 
-  await db.insert(messages).values({
+  const [note] = await db.insert(messages).values({
     ticketId,
     direction: "note",
     fromEmail: agent.email,
@@ -758,7 +807,8 @@ export async function addNote(
     bodyHtml,
     authorAgentId: agent.id,
     sentAt: now,
-  });
+  }).returning({ id: messages.id });
+  await storeInlineImages(note.id, extracted.images);
   await db.update(tickets).set({ updatedAt: now }).where(eq(tickets.id, ticketId));
 
   after(() => notifyMentions(ticket, body, agent));

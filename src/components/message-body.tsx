@@ -74,14 +74,16 @@ export function HtmlBody({ html }: { html: string }) {
 
   return (
     <div>
-      <iframe
-        ref={ref}
-        sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-        srcDoc={doc}
-        title="Message body"
-        className="block w-full border-0"
-        style={{ height }}
-      />
+      <div className="email-paper">
+        <iframe
+          ref={ref}
+          sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+          srcDoc={doc}
+          title="Message body"
+          className="block w-full border-0"
+          style={{ height }}
+        />
+      </div>
       {hasQuote && <QuoteToggle open={showQuote} onClick={() => setShowQuote((s) => !s)} />}
     </div>
   );

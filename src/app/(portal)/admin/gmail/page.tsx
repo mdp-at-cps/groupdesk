@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
-import { requireGmailOwner } from "@/lib/auth";
+import { canManageGmail, requireAgent } from "@/lib/auth";
 import { getSyncRow, sendAsStatus } from "@/lib/gmail/client";
 import {
   disconnectGmail,
@@ -44,7 +44,10 @@ export default async function GmailAdminPage({
 }: {
   searchParams: Promise<{ ok?: string; error?: string }>;
 }) {
-  await requireGmailOwner();
+  const { agent } = await requireAgent();
+  // Only GMAIL_MAILBOX's owner may connect or change it (OAuth must be granted
+  // by that account). Everyone else gets an explanation rather than an error.
+  if (!canManageGmail(agent)) return <NotGmailOwner signedInAs={agent.email} />;
   const sp = await searchParams;
   const row = await getSyncRow();
   const sendAs = row ? await sendAsStatus(env.groupEmail) : null;
@@ -203,5 +206,35 @@ function Row({ label, value }: { label: string; value: string }) {
       </dt>
       <dd className="break-words">{value}</dd>
     </>
+  );
+}
+
+function NotGmailOwner({ signedInAs }: { signedInAs: string }) {
+  return (
+    <div className="max-w-2xl p-6">
+      <h1 className="mb-1 text-base font-semibold">Gmail connection</h1>
+      <Card className="mt-4">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <AlertTriangle className="size-4 text-amber-500" />
+            Only {env.gmailMailbox} can manage this
+          </CardTitle>
+          <CardDescription>
+            You&apos;re signed in as {signedInAs}. Google only lets the mailbox&apos;s own
+            account grant access to it, so connecting Gmail, renewing the watch and
+            backfilling are limited to {env.gmailMailbox}.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2 text-xs text-[var(--muted-foreground)]">
+          <p>
+            To set it up: an admin adds {env.gmailMailbox} as an <b>Admin</b> under{" "}
+            <Link href="/admin/agents" className="underline">
+              Agents
+            </Link>
+            , then signs out and signs back in as {env.gmailMailbox} and returns here.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

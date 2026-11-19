@@ -6,14 +6,14 @@ import { SESSION_COOKIE, readSessionToken, signInConfigured } from "@/lib/sessio
  * Routes that must not require a signed-in agent:
  *   /api/auth/*      -> the sign-in flow itself
  *   /api/gmail/push  -> Pub/Sub OIDC token
- *   /api/cron/*      -> CRON_SECRET (or Vercel's cron header)
+ *   /api/cron/*      -> CRON_SECRET (sent by the Cron Trigger in worker.ts)
  *   /csat/*          -> the survey token in the URL (requesters aren't agents)
  * (Next 16 calls this file `proxy`.)
  */
 const PUBLIC = [/^\/api\/auth\//, /^\/api\/gmail\/push$/, /^\/api\/cron\//, /^\/csat\//];
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|favicon.png|themes/).*)"],
 };
 
 export async function proxy(req: NextRequest) {

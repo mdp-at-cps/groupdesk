@@ -1,8 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { db } from "@/db";
+import { cleanSignature, MAX_SIGNATURE_LENGTH } from "@/lib/signature";
 import { agentTeams, agents, blockedSenders, tags, teams, gmailSync } from "@/db/schema";
 import { requireAdmin, requireGmailOwner } from "@/lib/auth";
 import { slugify } from "@/lib/utils";
@@ -20,26 +21,67 @@ export async function upsertAgent(
   _prev: ActionState,
   form: FormData,
 ): Promise<ActionState> {
-  await requireAdmin();
+  const { agent: me } = await requireAdmin();
   const id = String(form.get("id") ?? "");
   const email = String(form.get("email") ?? "").trim().toLowerCase();
   const name = String(form.get("name") ?? "").trim();
-  const role = String(form.get("role") ?? "agent") as "agent" | "admin";
+  const roleRaw = String(form.get("role") ?? "agent");
+  if (roleRaw !== "agent" && roleRaw !== "admin") return { error: "Pick a role" };
+  const role = roleRaw;
 
-  if (!email.includes("@")) return { error: "A valid email is required" };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: "A valid email is required" };
   if (!name) return { error: "A name is required" };
+  if (name.length > 100) return { error: "That name is too long" };
 
-  if (id) {
-    await db.update(agents).set({ email, name, role }).where(eq(agents.id, id));
-  } else {
-    await db
-      .insert(agents)
-      .values({ email, name, role })
-      .onConflictDoNothing();
+  // Emails are unique (case-insensitively): sign-in finds the agent by email.
+  const [clash] = await db
+    .select({ id: agents.id, name: agents.name })
+    .from(agents)
+    .where(sql`lower(${agents.email}) = ${email}`)
+    .limit(1);
+  if (clash && clash.id !== id) return { error: `${email} already belongs to ${clash.name}` };
+
+  if (!id) {
+    await db.insert(agents).values({ email, name, role });
+    revalidatePath("/admin/agents");
+    return { ok: `Added ${name}` };
   }
 
+  const [current] = await db.select().from(agents).where(eq(agents.id, id)).limit(1);
+  if (!current) return { error: "That agent no longer exists" };
+
+  if (current.id === me.id) {
+    if (email !== current.email.toLowerCase())
+      return { error: "You can't change your own email; you'd be signed out. Ask another admin." };
+    if (role !== "admin") return { error: "You can't remove your own admin role. Ask another admin." };
+  }
+  if (current.role === "admin" && role !== "admin" && current.active) {
+    const [{ n }] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(agents)
+      .where(and(eq(agents.role, "admin"), eq(agents.active, true), ne(agents.id, id)));
+    if (!n) return { error: "There must be at least one active admin" };
+  }
+
+  // The edit form sends the signature too; other callers may leave it out.
+  const signatureRaw = form.get("signature");
+  if (signatureRaw !== null && String(signatureRaw).length > MAX_SIGNATURE_LENGTH)
+    return { error: "That signature is too long. Link to a hosted image instead of embedding one." };
+
+  await db
+    .update(agents)
+    .set({
+      email,
+      name,
+      role,
+      ...(signatureRaw !== null ? { signature: cleanSignature(String(signatureRaw)) } : {}),
+    })
+    .where(eq(agents.id, id));
+
   revalidatePath("/admin/agents");
-  return { ok: id ? "Agent updated" : `Added ${name}` };
+  // Names and emails show on tickets, notes and assignee pickers too.
+  revalidatePath("/", "layout");
+  return { ok: "Saved" };
 }
 
 export async function setAgentActive(

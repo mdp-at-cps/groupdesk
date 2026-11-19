@@ -1,10 +1,13 @@
 "use client";
 
 import { useOptimistic, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import * as Popover from "@radix-ui/react-popover";
-import { Bell, LogOut } from "lucide-react";
+import Link from "next/link";
+import { Bell, Check, LogOut, Settings } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
-import { setNotifyEmail } from "@/lib/actions/views";
+import { setNotifyEmail, setTheme } from "@/lib/actions/views";
+import { THEMES, themeById } from "@/lib/themes";
 import { cn } from "@/lib/utils";
 
 /**
@@ -17,8 +20,10 @@ export function UserMenu({
   photo,
   logoutUrl,
   notifyEmail,
+  theme,
 }: {
   notifyEmail: boolean;
+  theme: string;
   name: string;
   email: string;
   photo: string | null;
@@ -27,6 +32,21 @@ export function UserMenu({
 }) {
   const [notify, setNotify] = useOptimistic(notifyEmail);
   const [, start] = useTransition();
+  const router = useRouter();
+  const [currentTheme, setCurrentTheme] = useOptimistic(themeById(theme).id);
+
+  function pickTheme(id: string) {
+    const t = themeById(id);
+    // Switch at once; the server saves it and renders it from then on.
+    const html = document.documentElement;
+    html.setAttribute("data-theme", t.id);
+    html.classList.toggle("dark", t.dark);
+    start(async () => {
+      setCurrentTheme(t.id);
+      const r = await setTheme(t.id);
+      if (r.error) router.refresh();
+    });
+  }
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
@@ -87,6 +107,42 @@ export function UserMenu({
             </span>
           </button>
           <div className="my-1 h-px bg-[var(--border)]" />
+          <p className="px-2 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+            Theme
+          </p>
+          <div role="radiogroup" aria-label="Theme">
+            {THEMES.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="radio"
+                aria-checked={currentTheme === t.id}
+                onClick={() => pickTheme(t.id)}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-[var(--accent)]"
+              >
+                <span
+                  aria-hidden
+                  className="grid size-4 shrink-0 place-items-center rounded-full border border-[var(--border)]"
+                  style={{ background: t.swatch[0] }}
+                >
+                  <span className="size-1.5 rounded-full" style={{ background: t.swatch[1] }} />
+                </span>
+                <span className="flex-1">{t.label}</span>
+                {currentTheme === t.id && <Check className="size-4 text-[var(--muted-foreground)]" />}
+              </button>
+            ))}
+          </div>
+          <div className="my-1 h-px bg-[var(--border)]" />
+          <Popover.Close asChild>
+            <Link
+              href="/settings"
+              className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-[var(--accent)]"
+            >
+              <Settings className="size-4 text-[var(--muted-foreground)]" />
+              Settings
+              <span className="ml-auto text-[11px] text-[var(--muted-foreground)]">Signature</span>
+            </Link>
+          </Popover.Close>
           {logoutUrl ? (
             // A full page load, not a client navigation: it may leave for the provider.
             <a

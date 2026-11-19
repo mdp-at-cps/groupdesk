@@ -25,7 +25,8 @@ targets count school hours), but nothing depends on it being a school.
 | Framework | Next.js 16 App Router, React 19, TypeScript |
 | Database | Neon Postgres via Drizzle (`drizzle-orm/neon-serverless`, pooled URL) |
 | Styling | Tailwind v4, shadcn-style components in `src/components/ui` |
-| Attachments | Vercel Blob |
+| Hosting | Cloudflare Workers via [OpenNext](https://opennext.js.org/cloudflare) (`wrangler.jsonc`, `worker.ts`) |
+| Attachments | Cloudflare R2 (`ATTACHMENTS` binding) |
 | Login | Any OpenID Connect provider (`src/lib/oidc.ts`); session checked in `src/proxy.ts` |
 | Mail | `@googleapis/gmail`, `postal-mime` to parse, `mimetext` to compose |
 
@@ -108,7 +109,8 @@ than a lost ticket.
   Internal OAuth app
 - A Google Cloud project (Gmail API, Pub/Sub)
 - A Neon Postgres database
-- Vercel for hosting, cron and attachment storage (Blob)
+- A Cloudflare account for hosting (Workers), cron (Cron Triggers) and
+  attachment storage (R2)
 - An OpenID Connect identity provider for sign-in (Google, Microsoft Entra ID,
   Okta, Auth0, Keycloak or your own)
 
@@ -151,6 +153,47 @@ whether it is. Until then Gmail sends from the mailbox itself.
 
 ### 3. Run it locally
 
+#### Without any accounts: `pnpm dev:local`
+
+`pnpm dev:local` runs the whole app, mail included, with no database, Google
+or Cloudflare account. It starts a throwaway Postgres
+([embedded-postgres](https://github.com/leinelissen/embedded-postgres)),
+migrates and seeds it, starts a fake Google (`scripts/fake-google.ts`), and runs
+`next dev` signed in as `admin@example.org` (or `SEED_ADMIN_EMAIL`).
+Everything is discarded when it stops.
+
+The fake Google implements the OAuth flow, the Gmail API calls the app makes
+and the directory lookup. Its **mail viewer** at http://localhost:54340 lets
+you act as anyone:
+
+1. Open `/admin/gmail` → **Connect Gmail** → **Allow**. (Sign in as another
+   address to see the app refuse it.) Then **Renew watch**.
+2. In the viewer, pick a requester and send mail to `help@example.org`, with
+   attachments if you like. It lands in the mailbox and the app syncs at
+   once, as if a Pub/Sub push had arrived.
+3. Reply from the portal; the reply shows up in the requester's inbox in the
+   viewer. Reply from there to test threading, and so on.
+4. Notices (assignment, @mentions, replies on your ticket), satisfaction
+   surveys, digests and alerts all arrive in the recipient's inbox in the
+   viewer. Survey links open the app.
+5. The viewer's header switches the "Send mail as" alias between verified,
+   pending and missing, and turns on Google Groups' DMARC rewrite
+   (`From: "Name via help"`), to test sender detection.
+6. Its sidebar runs the scheduled jobs: watch renewal, catch-up sync, the
+   daily auto-solve and a forced weekly digest.
+
+For scripts, `POST http://localhost:54340/_fake/send` takes JSON
+(`from`, `fromName`, `to`, `cc`, `subject`, `text`, `html`, `inReplyTo`,
+`references`, `attachments: [{filename, contentType, base64}]`, and `date` to
+backdate mail for a backfill test), and `GET /_fake/messages?for=<address>`
+lists what that address received.
+
+Not covered: the Pub/Sub push endpoint itself (`/api/gmail/push`), which only
+accepts tokens signed by Google. Set `LOCAL_REAL_GOOGLE=1` with real Google
+values in `.env.local` to use real Google with the throwaway database instead.
+
+#### Against real services
+
 ```bash
 pnpm install
 cp .env.example .env.local
@@ -184,18 +227,54 @@ Then visit `/admin/gmail` and press **Connect Gmail**, signed in as
 3. `pnpm gmail:backfill` (or the Backfill card) imports past group mail. Those
    tickets are marked `imported` and left out of reports by default.
 
-### 4. Deploy (Vercel)
+### 4. Deploy (Cloudflare Workers)
 
-1. Create the Vercel project and a Neon database, then set every variable from
-   `.env.example` in Vercel (Production and Preview). `NEXT_PUBLIC_*` values
-   are baked in at build time, so redeploy after changing them.
-2. Set `APP_URL` to the production URL, and keep `GMAIL_PUSH_AUDIENCE`
+The app runs as a single Worker built with the OpenNext adapter. Attachments
+go to R2 and the scheduled jobs run as Cron Triggers.
+
+1. Sign in and create the attachment bucket (once):
+
+   ```bash
+   pnpm wrangler login
+   pnpm wrangler r2 bucket create groupdesk-attachments
+   ```
+
+   To use another Worker or bucket name, change `name`, the
+   `WORKER_SELF_REFERENCE` service and `bucket_name` in `wrangler.jsonc`.
+2. Set the runtime variables as Worker secrets, one per variable from
+   `.env.example` (everything except the `NEXT_PUBLIC_*` and local-only ones):
+
+   ```bash
+   pnpm wrangler secret put DATABASE_URL
+   pnpm wrangler secret put APP_URL        # e.g. https://groupdesk.<you>.workers.dev
+   # ...GOOGLE_*, GMAIL_*, GROUP_EMAIL, TOKEN_ENC_KEY, CRON_SECRET, OIDC_*, SESSION_SECRET, alerts
+   ```
+
+   Or use `pnpm wrangler secret bulk .env.production` to load a whole file
+   (never commit it).
+3. `NEXT_PUBLIC_*` values are baked in at build time, so put them in `.env`
+   or `.env.production` on the machine that runs the build, or in the build
+   variables if you deploy with Workers Builds. Rebuild after changing them.
+4. Deploy:
+
+   ```bash
+   pnpm cf:deploy  # db:migrate, then opennextjs-cloudflare build + deploy
+   ```
+
+   `db:migrate` reads `DATABASE_URL` from `.env.local`/`.env`, so schema
+   changes ship with the deploy. `pnpm cf:preview` builds and runs the Worker
+   locally in workerd (put local secrets in `.dev.vars`).
+5. Set `APP_URL` to the Worker's public URL (or attach a custom domain in the
+   Cloudflare dashboard and use that), and keep `GMAIL_PUSH_AUDIENCE`
    identical to the push subscription's audience.
-3. Register the app with your identity provider, with the redirect URI
+6. Register the app with your identity provider, with the redirect URI
    `https://<your domain>/api/auth/callback`, and set `OIDC_ISSUER`,
    `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` and `SESSION_SECRET`.
-4. `vercel-build` runs `db:migrate` before `next build`, so schema changes ship
-   with the deploy.
+
+**Limits.** Workers have no `maxDuration`. The long admin jobs (backfill,
+people sync) are CPU-bound in bursts, so on the Workers Paid plan uncomment
+`limits.cpu_ms` in `wrangler.jsonc`. The free plan caps CPU time per request
+and may cut those jobs short.
 
 ## Replies, photos and search
 
@@ -224,9 +303,24 @@ Then visit `/admin/gmail` and press **Connect Gmail**, signed in as
 - **Satisfaction survey.** Solving a ticket emails the requester a 👍/👎 link
   (`CSAT_DISABLED=1` turns it off); it can also be sent from the ticket's ⋯ menu.
 - **Merge** (ticket ⋯ menu) moves one ticket's emails, notes, tags and
-  assignees into another; the old number redirects. **Mark as spam** closes it
+  assignees into another; the old number redirects. To merge several at once,
+  select them in the list and choose **Merge** (`⇧M`) in the bulk bar, then
+  pick the ticket to keep. **Mark as spam** closes it
   and blocks the sender (new mail from them arrives closed); unblock at
   `/admin/spam`.
+- **Signatures**: each agent writes their own HTML signature under
+  Settings (avatar menu), with a live preview; admins can also set one from
+  the Agents page. Replies end with it; with none set, they end with
+  the default name-and-team block. Scripts and forms are
+  stripped. "Insert image" (or paste/drop into the box) uploads a logo to R2
+  under `signatures/`; replies carry it as an inline attachment, so
+  recipients see it without loading remote images.
+- **Themes**: each agent picks their own from the avatar menu (Simple,
+  Simple Dark or Campfire); it's saved to their account. To add a theme, list
+  it in `src/lib/themes.ts` and give it a `[data-theme="…"]` colour block in
+  `src/app/globals.css`. A theme can also show artwork along the bottom of the
+  portal: put the image in `public/themes/` and style `.theme-footer` for it,
+  as Campfire does.
 - **Saved views**: filters and sort live in the URL; "Save view" stores the
   current one in your sidebar.
 - **Search** is fuzzy (`pg_trgm`, enabled by migration 0001): typo-tolerant on
@@ -236,18 +330,51 @@ Then visit `/admin/gmail` and press **Connect Gmail**, signed in as
 
 ![Templates: the shared library, with variables to insert](docs/screenshots/templates.png)
 
+## Task Manager
+
+The **Tickets / Tasks** switch in the header opens the Task Manager at
+`/tasks`. Its sidebar has three filters (**My Tasks**, **All Tasks**,
+**Unassigned**) and your **Projects**.
+
+- **Tasks** have a title, description, assignee (any agent) and due date.
+  Click one to open it in the side panel; every field saves as you change it.
+  Tasks can have **subtasks** (one level), each with its own assignee and
+  due date.
+- **My Tasks** lists everything assigned to you, in every project, grouped
+  into Overdue, Today, Next 7 days, Later and No due date. A task added there
+  is assigned to you and belongs to no project.
+- **All Tasks** lists every task you can see (subtasks show as progress on
+  their parent); **Unassigned** narrows that to tasks nobody has taken yet.
+  Both have the same due-date groups and a Completed tab.
+- **Filters**: every list has a filter bar (assignee, project, due date,
+  search, include subtasks). Changes live in the URL; **Save as filter**
+  keeps the combination under **Filters** in your sidebar, with its open
+  count. On a saved filter, change the bar and **Update** it, or **Save as
+  new**; rename it from its title, and rename, reorder or delete it from the
+  ⋯ menu beside it in the sidebar. Saved filters are per agent
+  (`task_filters`), and only ever show tasks you can see.
+- **Projects** have a title, description and **members**. Only members can
+  see a project and its tasks, and only members can be assigned its tasks.
+  Whoever creates a project is its first member, and a project always keeps
+  at least one. Within a project, tasks can be grouped into **sections**,
+  which can be renamed, reordered and deleted (deleting one keeps its tasks).
+- A task in no project is visible to the agent who created it and the agent
+  it's assigned to.
+
+The rules live in `src/lib/tasks.ts` (reads) and `src/lib/actions/tasks.ts`
+(writes); admins have no extra access to projects they aren't members of.
+
 ## Crons and catch-up
 
-`vercel.json` schedules `/api/cron/gmail-watch` (watch renewal) and
-`/api/cron/gmail-reconcile` (catch-up sync) once a day each, which the Hobby
-plan allows. Between those, the catch-up runs two other ways:
+`wrangler.jsonc` declares Cron Triggers, and `worker.ts` maps each one to its
+`/api/cron/*` route, called in-process with `CRON_SECRET`. `/api/cron/gmail-watch`
+(watch renewal) runs daily and `/api/cron/gmail-reconcile` (catch-up sync)
+runs every 10 minutes. The portal's 5-second poll also runs the same sync
+whenever nothing has synced for 5 minutes, so dropped pushes are picked up
+quickly while anyone has the portal open.
 
-- **In the app.** The portal's 5-second poll runs the same sync whenever
-  nothing has synced for 5 minutes, so dropped pushes are picked up as long
-  as anyone has the portal open.
-- **GitHub Actions**, every 10 minutes (`.github/workflows/gmail-reconcile.yml`).
-  Set the repository variable `APP_URL` and the secret `CRON_SECRET` (same
-  value as in Vercel) to turn it on; without them the job doesn't run.
+To fire a trigger by hand, run `pnpm wrangler tail` and call the route with
+`Authorization: Bearer $CRON_SECRET`, or press the trigger in the dashboard.
 
 Two more scheduled jobs:
 
@@ -257,10 +384,10 @@ Two more scheduled jobs:
   counts. Closed is for non-requests (notifications, spam) and is never set
   automatically; reports leave closed tickets out.
 - `/api/cron/digest` and `/api/cron/digest-winter` email every active agent
-  their weekly digest at 4pm Friday in `NEXT_PUBLIC_TIME_ZONE`. Vercel cron is
-  UTC with no DST, so both fire and only the one landing at 4pm local sends.
-  The schedules in `vercel.json` are set for US Pacific; move them for another
-  zone. Replies to the digest are ignored by ingest. Admins can send
+  their weekly digest at 4pm Friday in `NEXT_PUBLIC_TIME_ZONE`. Cron Triggers
+  are UTC with no DST, so both fire and only the one landing at 4pm local sends.
+  The schedules in `wrangler.jsonc` (and `worker.ts`) are set for US Pacific;
+  move them for another zone. Replies to the digest are ignored by ingest. Admins can send
   themselves a preview from `/admin/reports`.
 
 When a watch renewal, catch-up sync or digest fails, the app sends an alert to
@@ -296,7 +423,7 @@ are generated from it with `pnpm db:generate`.
 | --- | --- |
 | `tickets` | Number (from a sequence), subject, requester, status, priority, team, Gmail thread, and whether it came from the backfill |
 | `messages` | Every email in and out, plus internal notes, with Gmail and RFC 822 ids for threading; `gmail_message_id` is unique |
-| `attachments` | Files in Vercel Blob, with Content-IDs so inline images render in place |
+| `attachments` | Files in R2 (`blob_url` holds the object key), with Content-IDs so inline images render in place |
 | `events` | The activity log on each ticket: status, assignment, tags, merges, survey results |
 | `agents`, `teams`, `agent_teams` | Who can sign in, their role, and team membership |
 | `tags`, `ticket_tags`, `ticket_assignees`, `ticket_stars` | Tags, multiple assignees, and per-agent stars |
@@ -306,6 +433,9 @@ are generated from it with `pnpm db:generate`.
 | `ticket_presence` | Who has a ticket open or is typing (unlogged, disposable) |
 | `blocked_senders` | Senders marked as spam |
 | `gmail_sync` | The connected mailbox, encrypted refresh token, watch expiry and history cursor |
+| `signature_images` | Images agents put in their signatures, stored in R2 under `signatures/` |
+| `projects`, `project_members`, `project_sections`, `tasks` | The Task Manager: projects and who can see them, their sections, and tasks (with `parent_id` for subtasks) |
+| `task_filters` | Each agent's saved task filters: a name and the filter's query string |
 
 ## Layout
 
@@ -333,6 +463,7 @@ scripts/                    migrate, seed, gmail:watch, gmail:sync, test:ingest
 
 ```bash
 pnpm dev            # local dev
+pnpm dev:local      # full local app: throwaway Postgres + fake Google with a mail viewer
 pnpm test           # typecheck + lint + offline ingest checks
 pnpm db:generate    # new migration after editing src/db/schema.ts
 pnpm db:migrate
@@ -340,6 +471,9 @@ pnpm db:verify      # read-only: what actually exists in the database
 pnpm gmail:sync     # run the ingest pipeline by hand
 pnpm gmail:watch    # start or renew the Gmail watch
 pnpm gmail:backfill # import past group mail
+pnpm cf:preview     # build for Cloudflare and run the Worker locally
+pnpm cf:deploy      # migrate, build and deploy to Cloudflare Workers
+pnpm cf-typegen     # regenerate binding types after editing wrangler.jsonc
 ```
 
 ## Troubleshooting
@@ -366,6 +500,31 @@ replies go out from.
   build time, so redeploy.
 - **Missed mail.** `pnpm gmail:sync` (or "Sync now" on `/admin/gmail`) runs the
   catch-up by hand. Syncing is idempotent, so it's always safe to run.
+
+## Automatic deploys (GitHub Actions)
+
+- **Checks** (`.github/workflows/ci.yml`) runs `pnpm test` on every pull
+  request. It needs no secrets.
+- **Deploy** (`.github/workflows/deploy.yml`) runs on every push to `main`
+  (and from the Actions tab): the checks, then `pnpm cf:deploy`, which
+  migrates Neon and deploys the Worker. Deploys queue rather than overlap.
+
+So the live site always matches `main`: work on a branch, open a pull
+request, and merging it deploys. Nobody needs to deploy from their own
+machine, so nobody needs the production secrets locally.
+
+One-time setup, in the repository's **Settings → Secrets and variables →
+Actions**:
+
+| Kind | Name | Value |
+| --- | --- | --- |
+| Secret | `CLOUDFLARE_API_TOKEN` | A token from Cloudflare (My Profile → API Tokens → Create Token → "Edit Cloudflare Workers" template), limited to this account |
+| Secret | `DATABASE_URL` | The Neon connection string (the one in `.env.neon`) |
+| Variable | `CLOUDFLARE_ACCOUNT_ID` | The Cloudflare account ID (`pnpm exec wrangler whoami`) |
+
+The app's runtime secrets (Google, session keys and so on) stay in
+Cloudflare and aren't needed here. If two branches both add a migration,
+regenerate the later one after merging so the numbers don't clash.
 
 ## Contributing
 

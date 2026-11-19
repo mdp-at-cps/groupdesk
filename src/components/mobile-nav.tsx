@@ -2,14 +2,14 @@
 
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
-import { Sidebar } from "@/components/sidebar";
+import { AppSidebar, type AppSidebarProps } from "@/components/app-sidebar";
 import { APP_NAME } from "@/lib/utils";
 
 /**
  * Below the md breakpoint the sidebar becomes a slide-out drawer behind a
  * menu button. Following any link in it closes it again.
  */
-export function MobileNav(props: React.ComponentProps<typeof Sidebar>) {
+export function MobileNav(props: AppSidebarProps) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -43,7 +43,7 @@ export function MobileNav(props: React.ComponentProps<typeof Sidebar>) {
                 <X className="size-5" />
               </button>
             </div>
-            <Sidebar {...props} className="w-full flex-1 border-r-0" />
+            <AppSidebar {...props} className="w-full flex-1 border-r-0" />
           </div>
         </div>
       )}

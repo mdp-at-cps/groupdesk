@@ -1,15 +1,15 @@
 import { eq } from "drizzle-orm";
-import { get } from "@vercel/blob";
 import { db } from "@/db";
 import { attachments } from "@/db/schema";
 import { getSession } from "@/lib/auth";
+import { getFile } from "@/lib/storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Serves an email attachment to signed-in agents. Works for private and
- * public Blob stores alike, so attachment links never expose storage URLs.
+ * Serves an email attachment from R2 to signed-in agents, so attachment
+ * links never expose storage URLs.
  * Images and PDFs open in the browser; everything else downloads.
  */
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -21,14 +21,13 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const [att] = await db.select().from(attachments).where(eq(attachments.id, id)).limit(1);
   if (!att) return new Response("Not found", { status: 404 });
 
-  let found = await get(att.blobUrl, { access: "private" }).catch(() => null);
-  found ??= await get(att.blobUrl, { access: "public" }).catch(() => null);
+  const found = await getFile(att.blobUrl).catch(() => null);
   if (!found) return new Response("Attachment is no longer available", { status: 404 });
 
   const type = att.contentType || "application/octet-stream";
   const inline = /^(image\/|application\/pdf$|text\/plain$)/.test(type);
   const safeName = att.filename.replace(/["\\\r\n]/g, "_");
-  return new Response(found.stream, {
+  return new Response(found, {
     headers: {
       "Content-Type": type,
       "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(att.filename)}`,

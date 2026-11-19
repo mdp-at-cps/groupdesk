@@ -1,0 +1,1 @@
+ALTER TABLE "agents" ADD COLUMN "theme" text DEFAULT 'simple' NOT NULL;
